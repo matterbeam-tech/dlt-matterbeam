@@ -11,7 +11,6 @@ import tarfile
 
 import pytest
 import yaml
-
 from dlt_matterbeam.deploy import (
     DeployClient,
     DeployError,
@@ -217,9 +216,7 @@ def test_poll_build_status_stops_early_on_a_terminal_status(fake_server):
     state.pids[pid]["current_package_hash"] = "hash-1"
 
     sleeps = []
-    status = poll_build_status(
-        client, pid, max_attempts=5, interval_seconds=1.0, sleep=sleeps.append
-    )
+    status = poll_build_status(client, pid, max_attempts=5, interval_seconds=1.0, sleep=sleeps.append)
 
     assert status["build_status"] == "ready"
     assert sleeps == []  # never slept -- resolved on the very first check
@@ -291,8 +288,7 @@ def test_recover_secrets_excludes_the_matterbeam_destinations_own_token(fake_ser
 
 def test_recover_secrets_requires_a_prior_run(tmp_path):
     script_path = tmp_path / "never_run.py"
-    script_path.write_text(
-        """
+    script_path.write_text("""
 import dlt
 
 from dlt_matterbeam.destinations import matterbeam
@@ -307,8 +303,7 @@ pipeline = dlt.pipeline(
 
 if __name__ == "__main__":
     pipeline.run([{{"id": 1}}], table_name="items")
-""".format(pipelines_dir=str(tmp_path / "pipelines_never_run"))
-    )
+""".format(pipelines_dir=str(tmp_path / "pipelines_never_run")))
 
     with pytest.raises(DeployError, match="run successfully at least once locally"):
         recover_secrets(str(script_path))
@@ -349,8 +344,7 @@ def test_deploy_end_to_end_against_fake_server(fake_server, tmp_path, monkeypatc
 
 def test_deploy_rejects_a_pipeline_with_no_configured_matterbeam_url(tmp_path):
     script_path = tmp_path / "no_base_url.py"
-    script_path.write_text(
-        """
+    script_path.write_text("""
 import dlt
 
 from dlt_matterbeam.destinations import matterbeam
@@ -360,8 +354,7 @@ pipeline = dlt.pipeline(
     destination=matterbeam(),
     dataset_name="ds",
 )
-"""
-    )
+""")
 
     with pytest.raises(DeployError, match="matterbeam_url"):
         deploy(str(script_path))

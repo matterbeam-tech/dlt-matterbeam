@@ -49,7 +49,6 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 import yaml
-
 from dlt_matterbeam.gate import open_collector_pipeline
 
 logger = logging.getLogger("dlt_matterbeam")
@@ -180,11 +179,11 @@ def recover_secrets(pipeline_script_path: str) -> List[SecretItem]:
     exactly what `dlt deploy` attaches to.
     """
     import dlt
+    from dlt._workspace.cli._deploy_command_helpers import get_state_and_trace, get_visitors, parse_pipeline_info
+    from dlt._workspace.cli.exceptions import CliCommandInnerException, PipelineWasNotRun
     from dlt.common.configuration.exceptions import ConfigFieldMissingException
     from dlt.common.configuration.providers import EnvironProvider, StringTomlProvider
     from dlt.common.utils import set_working_dir
-    from dlt._workspace.cli._deploy_command_helpers import get_state_and_trace, parse_pipeline_info, get_visitors
-    from dlt._workspace.cli.exceptions import CliCommandInnerException, PipelineWasNotRun
     from dlt.pipeline.exceptions import CannotRestorePipelineException
 
     script_dir = os.path.dirname(os.path.abspath(pipeline_script_path)) or "."
@@ -203,7 +202,9 @@ def recover_secrets(pipeline_script_path: str) -> List[SecretItem]:
             # recovered by AST is the one we want.
             pipeline_name, pipelines_dir = possible_pipelines[0]
     except CliCommandInnerException as ex:
-        logger.warning(f"dlt matterbeam deploy: could not statically locate pipeline_name/pipelines_dir ({ex}); falling back to defaults")
+        logger.warning(
+            f"dlt matterbeam deploy: could not statically locate pipeline_name/pipelines_dir ({ex}); falling back to defaults"
+        )
 
     with set_working_dir(script_dir):
         try:
@@ -385,7 +386,9 @@ def build_package(pipeline_script_path: str, output_path: str) -> BuiltPackage:
 
         manifest_files.sort(key=lambda x: x["relative_path"])
         manifest = {"engine_version": 1, "entry_script": entry_script, "files": manifest_files}
-        manifest_yaml = yaml.dump(manifest, allow_unicode=True, default_flow_style=False, sort_keys=False).encode("utf-8")
+        manifest_yaml = yaml.dump(manifest, allow_unicode=True, default_flow_style=False, sort_keys=False).encode(
+            "utf-8"
+        )
         manifest_info = tarfile.TarInfo(name=_MANIFEST_FILE_NAME)
         manifest_info.size = len(manifest_yaml)
         tar.addfile(manifest_info, BytesIO(manifest_yaml))
@@ -395,7 +398,9 @@ def build_package(pipeline_script_path: str, output_path: str) -> BuiltPackage:
 
 def _raise_for_status(response) -> None:
     if response.status_code >= 400:
-        raise DeployError(f"{response.request.method} {response.request.url} -> {response.status_code}: {response.text}")
+        raise DeployError(
+            f"{response.request.method} {response.request.url} -> {response.status_code}: {response.text}"
+        )
 
 
 class DeployClient:

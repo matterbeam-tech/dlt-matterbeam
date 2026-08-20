@@ -16,7 +16,6 @@ import os
 import uuid
 
 import dlt
-
 from dlt_matterbeam.destinations import matterbeam
 
 

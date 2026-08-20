@@ -7,10 +7,10 @@ than generating its own timestamp/noise -- exactly what lets this test hold both
 to the same inputs instead of racing real-time clocks against each other.
 """
 
+from dlt_matterbeam import crf
+
 from matterbeam_shared.coldlog_writer.coldlog_writer import ColdlogWriter
 from matterbeam_shared.json_encoder import json_dump_bytes
-
-from dlt_matterbeam import crf
 
 RECORDTYPE_ID = "ds.parity_table"
 WRITER_ID = 0

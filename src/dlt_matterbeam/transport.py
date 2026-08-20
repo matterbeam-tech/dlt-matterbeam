@@ -31,7 +31,6 @@ from dlt.common.destination.exceptions import (
     DestinationTerminalException,
     DestinationTransientException,
 )
-
 from dlt_matterbeam import crf, envelope
 
 TRANSPORTS_ENTRY_POINT_GROUP = "dlt_matterbeam.transports"
@@ -125,7 +124,9 @@ class FileTransport:
     ) -> str:
         records = [
             envelope.encode_record(
-                envelope.build_record(row, record_type_id=recordtype_id, keys=keys, hard_delete=hard_delete, load_id=load_id)
+                envelope.build_record(
+                    row, record_type_id=recordtype_id, keys=keys, hard_delete=hard_delete, load_id=load_id
+                )
             )
             for row in rows
         ]
@@ -257,9 +258,9 @@ class HttpTransport:
         import zstandard
 
         lines = [
-            json.dumps(envelope.build_wire_record(row, keys=keys, hard_delete=hard_delete), separators=(",", ":")).encode(
-                "utf8"
-            )
+            json.dumps(
+                envelope.build_wire_record(row, keys=keys, hard_delete=hard_delete), separators=(",", ":")
+            ).encode("utf8")
             for row in rows
         ]
         body = zstandard.ZstdCompressor(level=3).compress(b"\n".join(lines))

@@ -10,7 +10,6 @@ import argparse
 from typing import Optional
 
 from dlt.common.configuration.plugins import SupportsCliCommand, TCliCommandCompose
-
 from dlt_matterbeam.deploy import (
     DeployClient,
     DeployError,
@@ -45,9 +44,7 @@ pipeline. `dlt matterbeam status <pid>` re-polls build status without redeployin
 
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
         self.parser = parser
-        subparsers = parser.add_subparsers(
-            title="Available subcommands", dest="matterbeam_command", required=True
-        )
+        subparsers = parser.add_subparsers(title="Available subcommands", dest="matterbeam_command", required=True)
 
         deploy_cmd = subparsers.add_parser(
             "deploy",

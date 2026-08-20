@@ -63,8 +63,7 @@ def check_disposition(table: Mapping[str, Any], warn: Any) -> None:
             f"table `{name}`: `replace` is degraded to `append` -- Matterbeam has no "
             "truncation marker (B8), so the previous load's rows remain in the log. "
             + (
-                "The table is keyed, so every key in the new load overwrites; only "
-                "source-side deletions linger."
+                "The table is keyed, so every key in the new load overwrites; only " "source-side deletions linger."
                 if keyed
                 else "The table is UNKEYED: the previous load's rows are indistinguishable "
                 "from the new ones and will remain."

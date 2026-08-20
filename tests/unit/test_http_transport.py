@@ -8,7 +8,6 @@ stamping `mb.metadata` (C2).
 """
 
 import dlt
-
 from fake_matterbeam import fold
 
 
@@ -182,8 +181,16 @@ def test_409_lock_contention_is_retried_and_load_closed_is_terminal(http_pipelin
     try:
         with __import__("pytest").raises(Exception) as exc_info:
             http.send_chunk(
-                recordtype_id="ds.rows", dataset_name="ds", table_name="rows", rows=[{"id": 2}],
-                keys=[], hard_delete=[], load_id="load-x", job_id="job-x", seq=0, pid=pid,
+                recordtype_id="ds.rows",
+                dataset_name="ds",
+                table_name="rows",
+                rows=[{"id": 2}],
+                keys=[],
+                hard_delete=[],
+                load_id="load-x",
+                job_id="job-x",
+                seq=0,
+                pid=pid,
             )
         assert "lock_contention" in str(exc_info.value)
     finally:
@@ -195,8 +202,16 @@ def test_409_lock_contention_is_retried_and_load_closed_is_terminal(http_pipelin
     state.closed_loads.add((pid, "load-y"))
     with __import__("pytest").raises(Exception) as exc_info:
         http.send_chunk(
-            recordtype_id="ds.rows", dataset_name="ds", table_name="rows", rows=[{"id": 3}],
-            keys=[], hard_delete=[], load_id="load-y", job_id="job-y", seq=0, pid=pid,
+            recordtype_id="ds.rows",
+            dataset_name="ds",
+            table_name="rows",
+            rows=[{"id": 3}],
+            keys=[],
+            hard_delete=[],
+            load_id="load-y",
+            job_id="job-y",
+            seq=0,
+            pid=pid,
         )
     assert "load_closed" in str(exc_info.value)
 

@@ -20,16 +20,16 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Iterator, Optional
 
+from dlt.common.configuration.container import Container
+from dlt.pipeline.pipeline import Pipeline
+
 MATTERBEAM_DESTINATION_TYPE = "dlt_matterbeam.destinations.matterbeam"
-"""`Pipeline.destination.destination_type` for the real factory (A3, A11) -- `<plugin
-module>.destinations.<name>`."""
+"""`Pipeline.destination.destination_type` -- `<pluginmodule>.destinations.<name>`."""
 
 
 class _RunIntercepted(Exception):
     """Raised by the patched `Pipeline.run` so a candidate script never reaches a real
-    destination or source while we inspect it (A11, "load-bearing correction": `.run()`
-    round-trips the destination before `.extract()` ever starts, so the patch has to sit
-    at `.run()`'s own entry, not any method it calls)."""
+    destination or source while we inspect it."""
 
 
 class MatterbeamGateError(Exception):
@@ -42,16 +42,15 @@ class GateResult:
     """One of: "collector" (destination=matterbeam), "not_matterbeam" (resolved to a
     different destination), "no_destination" (pipeline constructed, no destination
     resolved), "unresolved" (destination name didn't resolve -- e.g. a missing
-    dependency; A11 is explicit this must stay distinct from "not matterbeam"), or
-    "no_pipeline" (the script never constructed a dlt pipeline, or doesn't exist)."""
+    dependency."""
     destination_type: Optional[str] = None
     detail: Optional[str] = None
 
 
 @contextmanager
 def _run_intercepted(pipeline_script_path: str) -> Iterator["Container"]:  # type: ignore[name-defined]
-    """Runs `pipeline_script_path` far enough to resolve its dlt objects, per A11's
-    demonstrated harness: an ephemeral `DLT_DATA_DIR` for this invocation only (so a
+    """Runs `pipeline_script_path` far enough to resolve its dlt objects: an
+    ephemeral `DLT_DATA_DIR` for this invocation only (so a
     prior local run's leftover state can't leak a destination into this check), and a
     patch on `Pipeline.run` at entry (never `.extract()`) so the script is stopped
     before it can contact anything real. Yields the dlt `Container` so a caller can
@@ -59,7 +58,7 @@ def _run_intercepted(pipeline_script_path: str) -> Iterator["Container"]:  # typ
     (e.g. `UnknownDestinationModule`) is left for the caller to handle, not swallowed
     here -- this helper only owns setup/teardown.
 
-    Shared by `inspect_destination` (pass-1 gate classification) and
+    Shared by `inspect_destination` and
     `open_collector_pipeline` (deploy.py's route into the same live `Pipeline` object,
     once the gate has already confirmed it's a collector) so the interception mechanics
     exist in exactly one place.
@@ -101,7 +100,7 @@ def _run_intercepted(pipeline_script_path: str) -> Iterator["Container"]:  # typ
 
 
 def inspect_destination(pipeline_script_path: str) -> GateResult:
-    """Pass-1 gate classification -- see `_run_intercepted` for the mechanics."""
+    """Gate classification -- see `_run_intercepted` for the mechanics."""
     from dlt.common.destination.exceptions import UnknownDestinationModule
     from dlt.common.pipeline import PipelineContext
 
@@ -136,15 +135,14 @@ def inspect_destination(pipeline_script_path: str) -> GateResult:
 
 
 def run_gate(pipeline_script_path: str) -> GateResult:
-    """Pass-1 entry point for `dlt matterbeam deploy`. Returns the `GateResult` for a
+    """Entry point for `dlt matterbeam deploy`. Returns the `GateResult` for a
     recognized collector; raises `MatterbeamGateError` with an actionable message for
     everything else."""
     result = inspect_destination(pipeline_script_path)
 
     if result.outcome == "no_pipeline":
         raise MatterbeamGateError(
-            f"{pipeline_script_path!r} did not construct a dlt pipeline "
-            f"({result.detail}) -- nothing to deploy."
+            f"{pipeline_script_path!r} did not construct a dlt pipeline " f"({result.detail}) -- nothing to deploy."
         )
     if result.outcome == "unresolved":
         raise MatterbeamGateError(
@@ -158,7 +156,7 @@ def run_gate(pipeline_script_path: str) -> GateResult:
             "dlt matterbeam deploy requires the pipeline's destination to be "
             f'"matterbeam" -- found {seen} instead. (A pipeline with matterbeam as '
             "its *source* -- an emitter -- will also be accepted once that support "
-            "ships; it is not yet built.) Set destination=\"matterbeam\" (or a "
+            'ships; it is not yet built.) Set destination="matterbeam" (or a '
             "matterbeam() factory instance) and try again."
         )
     assert result.outcome == "collector"

@@ -14,9 +14,8 @@ be rare. This test proves the server-side instrumentation added in Phase 3 catch
 also demonstrates the underlying data hazard it's counting.
 """
 
-from fake_matterbeam import fold
-
 import _direct_http as http
+from fake_matterbeam import fold
 
 
 def test_residual_window_is_detected_and_the_underlying_hazard_reproduces(fake_server):
@@ -34,7 +33,9 @@ def test_residual_window_is_detected_and_the_underlying_hazard_reproduces(fake_s
     # harmless ledger replay) and then its never-before-sent chunk 1 -- carrying the
     # *older* value for key 42 -- goes out for the first time, landing after J2's write.
     http.post_chunk(base_url, pid, "t", "L1", "J1", 0, [{"i": "j1c0", "v": {"id": 1, "val": "other"}}])
-    resurrecting = http.post_chunk(base_url, pid, "t", "L1", "J1", 1, [{"i": "j1c1", "v": {"id": 42, "val": "v1_stale"}}])
+    resurrecting = http.post_chunk(
+        base_url, pid, "t", "L1", "J1", 1, [{"i": "j1c1", "v": {"id": 42, "val": "v1_stale"}}]
+    )
     assert resurrecting.status_code == 200
 
     assert state.counters["residual_stale_resurrection"] == 1

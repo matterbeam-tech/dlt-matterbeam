@@ -5,7 +5,6 @@ import argparse
 import runpy
 
 import pytest
-
 from dlt_matterbeam.cli import MatterbeamCommand
 from dlt_matterbeam.gate import MatterbeamGateError
 
@@ -89,7 +88,9 @@ def test_execute_deploy_runs_pid_secrets_and_upload(tmp_path, capsys, fake_serve
     base_url, state = fake_server
     script = tmp_path / "hosted_case.py"
     pipelines_dir = tmp_path / "pipelines"
-    script.write_text(HOSTED_MATTERBEAM_SCRIPT.format(name="cli_hosted_case", base_url=base_url, pipelines_dir=str(pipelines_dir)))
+    script.write_text(
+        HOSTED_MATTERBEAM_SCRIPT.format(name="cli_hosted_case", base_url=base_url, pipelines_dir=str(pipelines_dir))
+    )
     runpy.run_path(str(script), run_name="__main__")  # the customer's prior local run
 
     command = MatterbeamCommand()

@@ -6,7 +6,6 @@ that it survives by retrying. Both exercised directly against the fake server's 
 import threading
 
 import dlt
-
 from fake_matterbeam import fold
 
 
@@ -56,7 +55,7 @@ def test_two_different_pipelines_proceed_concurrently(http_pipeline_factory):
 
 
 def test_same_pipeline_run_twice_at_once_gets_a_409_and_still_lands_correctly(http_pipeline_factory):
-    """"Two laptops running the same pipeline name" (design doc D5/D6): the second run
+    """ "Two laptops running the same pipeline name" (design doc D5/D6): the second run
     must not silently drop data or duplicate it -- the entry lock serialises the two, one
     of them retries through `lock_contention`, and the fold ends up identical to what a
     clean sequential run would have produced."""

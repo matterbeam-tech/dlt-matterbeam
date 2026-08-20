@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING
 
 from dlt.common.destination.client import PreparedTableSchema, RunnableLoadJob
 from dlt.common.storages import FileStorage
-
 from dlt_matterbeam import envelope
 
 if TYPE_CHECKING:

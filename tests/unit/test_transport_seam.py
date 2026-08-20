@@ -11,11 +11,10 @@ from importlib.metadata import entry_points
 
 import pytest
 from dlt.common.configuration.exceptions import ConfigurationValueError
-
 from dlt_matterbeam.transport import (
+    TRANSPORTS_ENTRY_POINT_GROUP,
     FileTransport,
     HttpTransport,
-    TRANSPORTS_ENTRY_POINT_GROUP,
     resolve_transport,
 )
 

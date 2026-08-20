@@ -1,7 +1,6 @@
 """The upload gate (A11, cli-and-upload-options.md §3): pass-1 destination detection."""
 
 import pytest
-
 from dlt_matterbeam.gate import GateResult, MatterbeamGateError, inspect_destination, run_gate
 
 MATTERBEAM_SCRIPT = """

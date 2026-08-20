@@ -23,7 +23,6 @@ from dlt.common.destination.client import (
     WithStateSync,
 )
 from dlt.common.schema import Schema, TSchemaTables
-
 from dlt_matterbeam.configuration import MatterbeamClientConfiguration
 from dlt_matterbeam.load_job import MatterbeamLoadJob, MatterbeamStateJob
 from dlt_matterbeam.transport import MatterbeamTransport, resolve_transport

@@ -13,12 +13,10 @@ import sys
 import time
 import uuid
 
+import _chaos as chaos
 import pytest
 import requests
-
 from dlt_matterbeam.transport import HttpTransport
-
-import _chaos as chaos
 
 COLDLOG_BUCKET = os.environ.get("MATTERBEAM_COLDLOG_BUCKET", "matterbeam-dev-coldlog")
 STATE_BUCKET = os.environ.get("MATTERBEAM_STATE_BUCKET", "matterbeam-dev-reinvoke-state")
@@ -106,8 +104,16 @@ def test_a_crash_while_holding_the_lock_stalls_the_pid_indefinitely(crash_point)
 
     with pytest.raises(DestinationTerminalException, match="lock_contention"):
         transport.send_chunk(
-            recordtype_id="ignored", dataset_name="ignored", table_name="t", rows=[{"id": 2}],
-            keys=[], hard_delete=[], load_id="L1", job_id="J2", seq=0, pid=pid,
+            recordtype_id="ignored",
+            dataset_name="ignored",
+            table_name="t",
+            rows=[{"id": 2}],
+            keys=[],
+            hard_delete=[],
+            load_id="L1",
+            job_id="J2",
+            seq=0,
+            pid=pid,
         )
     assert chaos.pid_fsm_state(pid) == "RUNNING"  # still stuck -- dlt's own retry cannot self-heal this
 
@@ -162,7 +168,9 @@ def test_crash_before_the_dlt_id_mark_produces_a_documented_duplicate_never_a_lo
     recordtype_id = warmup.json()["data"]["segment_key"].split("/")[1]
 
     with pytest.raises(requests.exceptions.ConnectionError):
-        chaos.post_chunk(pid, "t", "L1", "J1", 0, [{"i": "a", "v": {"id": 1}}], chaos_crash_at="after_commit_before_mark")
+        chaos.post_chunk(
+            pid, "t", "L1", "J1", 0, [{"i": "a", "v": {"id": 1}}], chaos_crash_at="after_commit_before_mark"
+        )
     chaos.force_release_lock(pid)
 
     retry = _post_chunk_after_recovery(pid, "t", "L1", "J1", 0, [{"i": "a", "v": {"id": 1}}])
@@ -182,7 +190,9 @@ def test_crash_after_the_dlt_id_mark_prevents_the_duplicate():
     recordtype_id = warmup.json()["data"]["segment_key"].split("/")[1]
 
     with pytest.raises(requests.exceptions.ConnectionError):
-        chaos.post_chunk(pid, "t", "L1", "J1", 0, [{"i": "a", "v": {"id": 1}}], chaos_crash_at="after_mark_before_ledger")
+        chaos.post_chunk(
+            pid, "t", "L1", "J1", 0, [{"i": "a", "v": {"id": 1}}], chaos_crash_at="after_mark_before_ledger"
+        )
     chaos.force_release_lock(pid)
 
     retry = _post_chunk_after_recovery(pid, "t", "L1", "J1", 0, [{"i": "a", "v": {"id": 1}}])

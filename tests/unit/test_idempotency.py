@@ -8,9 +8,8 @@ a whole dlt pipeline: these mechanics are server-internal, and constructing an e
 up with a particular scenario.
 """
 
-from fake_matterbeam import fold
-
 import _direct_http as http
+from fake_matterbeam import fold
 
 
 def test_duplicate_chunk_resend_is_a_noop(fake_server):

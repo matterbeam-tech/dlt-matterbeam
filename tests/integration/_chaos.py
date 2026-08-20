@@ -15,7 +15,6 @@ from typing import Optional
 
 import requests
 import zstandard
-
 from dlt_matterbeam import crf
 
 
@@ -44,15 +43,26 @@ def register(pipeline_key: str, dataset_name: str) -> str:
 
 
 def post_chunk(
-    pid: str, table: str, load_id: str, job_id: str, seq, rows: list[dict], *, chaos_crash_at: Optional[str] = None,
+    pid: str,
+    table: str,
+    load_id: str,
+    job_id: str,
+    seq,
+    rows: list[dict],
+    *,
+    chaos_crash_at: Optional[str] = None,
     timeout: float = 15,
 ) -> requests.Response:
     lines = [json.dumps(row, separators=(",", ":")).encode("utf8") for row in rows]
     body = zstandard.ZstdCompressor(level=3).compress(b"\n".join(lines))
-    headers = _headers({"Content-Encoding": "zstd", "X-MB-Load-Id": load_id, "X-MB-Job-Id": job_id, "X-MB-Seq": str(seq)})
+    headers = _headers(
+        {"Content-Encoding": "zstd", "X-MB-Load-Id": load_id, "X-MB-Job-Id": job_id, "X-MB-Seq": str(seq)}
+    )
     if chaos_crash_at:
         headers["X-MB-Chaos-Crash-At"] = chaos_crash_at
-    return requests.post(f"{base_url()}/collectors/{pid}/ingest/{table}:bulk", data=body, headers=headers, timeout=timeout)
+    return requests.post(
+        f"{base_url()}/collectors/{pid}/ingest/{table}:bulk", data=body, headers=headers, timeout=timeout
+    )
 
 
 def complete_load(pid: str, load_id: str) -> requests.Response:
@@ -119,10 +129,18 @@ def force_release_lock(pid: str) -> None:
         f"{pid!r}, PidState.LISTENING, fsm['update_version'], logging.getLogger())\n"
     )
     env = dict(os.environ)
-    env.update(AWS_PROFILE="default", CUSTOMER="dev", AWS_ACCOUNT_ID=os.environ.get("MATTERBEAM_AWS_ACCOUNT_ID", "218354445410"))
+    env.update(
+        AWS_PROFILE="default",
+        CUSTOMER="dev",
+        AWS_ACCOUNT_ID=os.environ.get("MATTERBEAM_AWS_ACCOUNT_ID", "218354445410"),
+    )
     subprocess.run(
         ["uv", "run", "--no-sync", "python", "-c", script],
-        cwd=_REST_API_SRC, env=env, check=True, capture_output=True, text=True,
+        cwd=_REST_API_SRC,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
     )
 
 
@@ -146,7 +164,9 @@ def process_state(bucket: str, pid: str) -> dict:
 
     key = f"process_manager/{pid}/process_state.json"
     with tempfile.NamedTemporaryFile(suffix=".json") as f:
-        subprocess.run(["aws", "s3", "cp", f"s3://{bucket}/{key}", f.name], env=_aws_env(), check=True, capture_output=True)
+        subprocess.run(
+            ["aws", "s3", "cp", f"s3://{bucket}/{key}", f.name], env=_aws_env(), check=True, capture_output=True
+        )
         return json.load(open(f.name))
 
 
@@ -164,14 +184,19 @@ def read_all_real_records(bucket: str, recordtype_id: str) -> list[tuple[int, di
     prefix = f"crf_v2/{recordtype_id}/"
     listing = subprocess.run(
         ["aws", "s3api", "list-objects-v2", "--bucket", bucket, "--prefix", prefix, "--output", "json"],
-        capture_output=True, text=True, env=_aws_env(), check=True,
+        capture_output=True,
+        text=True,
+        env=_aws_env(),
+        check=True,
     )
     keys = [obj["Key"] for obj in (json.loads(listing.stdout).get("Contents") or [])]
 
     records: list[tuple[int, dict]] = []
     for key in keys:
         with tempfile.NamedTemporaryFile(suffix=".zst") as f:
-            subprocess.run(["aws", "s3", "cp", f"s3://{bucket}/{key}", f.name], env=_aws_env(), check=True, capture_output=True)
+            subprocess.run(
+                ["aws", "s3", "cp", f"s3://{bucket}/{key}", f.name], env=_aws_env(), check=True, capture_output=True
+            )
             for rid, _rt, data in crf.read_segment(f.name):
                 records.append((rid, json.loads(data)))
     return records

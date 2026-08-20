@@ -31,7 +31,6 @@ def fake_server(tmp_path):
 def http_pipeline_factory(tmp_path, fake_server):
     """Builds an isolated dlt pipeline pointed at the fake server via `HttpTransport`."""
     import dlt
-
     from dlt_matterbeam.destinations import matterbeam
 
     matterbeam_url, state = fake_server
@@ -62,7 +61,6 @@ def pipeline_factory(tmp_path):
     output_dir per call, and a unique pipeline_name so nothing collides even within one
     test process."""
     import dlt
-
     from dlt_matterbeam.destinations import matterbeam
 
     def make(dataset_name: str = "ds", **destination_kwargs):

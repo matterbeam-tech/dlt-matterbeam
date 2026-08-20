@@ -10,7 +10,6 @@ import typing as t
 
 from dlt.common.destination import Destination, DestinationCapabilitiesContext
 from dlt.common.normalizers.naming.naming import NamingConvention
-
 from dlt_matterbeam.configuration import MatterbeamClientConfiguration
 
 if t.TYPE_CHECKING:

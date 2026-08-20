@@ -54,7 +54,6 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import zstandard
-
 from dlt_matterbeam import crf
 
 TOKEN = "fake-token"
@@ -268,7 +267,13 @@ class FakeMatterbeamState:
     # ------------------------------------------------------------------------------ ingest
 
     def ingest(
-        self, pid: str, table: str, load_id: str, job_id: str, seq: str, lines: list[bytes],
+        self,
+        pid: str,
+        table: str,
+        load_id: str,
+        job_id: str,
+        seq: str,
+        lines: list[bytes],
         chaos_crash_at: "str | None" = None,
     ):
         # C4: an already-recorded chunk is acknowledged and discarded without appending,
@@ -455,11 +460,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _error(self, code: int, reason: str) -> None:
-        self._reply(code, {"error": {"type": "error", "message": reason, "code": "CONFLICT", "context": {"reason": reason}}})
+        self._reply(
+            code, {"error": {"type": "error", "message": reason, "code": "CONFLICT", "context": {"reason": reason}}}
+        )
 
     def _auth(self) -> bool:
         if self.headers.get("Authorization") != f"Token {TOKEN}":
-            self._reply(401, {"error": {"type": "authentication_error", "message": "no token", "code": "INVALID_TOKEN"}})
+            self._reply(
+                401, {"error": {"type": "authentication_error", "message": "no token", "code": "INVALID_TOKEN"}}
+            )
             return False
         return True
 
@@ -477,7 +486,9 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 3 and parts[0] == "collectors" and parts[2] == "state":
             doc = self.state.get_dlt_state(parts[1])
             if doc is None:
-                return self._reply(404, {"error": {"type": "not_found_error", "message": "no state", "code": "RESOURCE_NOT_FOUND"}})
+                return self._reply(
+                    404, {"error": {"type": "not_found_error", "message": "no state", "code": "RESOURCE_NOT_FOUND"}}
+                )
             return self._reply(200, {"data": doc})
 
         # GET /collectors/{pid}/deployment/status
@@ -485,7 +496,9 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 return self._reply(200, self.state.get_build_status(parts[1]))
             except KeyError:
-                return self._reply(404, {"error": {"type": "not_found_error", "message": self.path, "code": "RESOURCE_NOT_FOUND"}})
+                return self._reply(
+                    404, {"error": {"type": "not_found_error", "message": self.path, "code": "RESOURCE_NOT_FOUND"}}
+                )
         self._reply(404, {"error": {"type": "not_found_error", "message": self.path, "code": "RESOURCE_NOT_FOUND"}})
 
     def do_POST(self):
@@ -502,7 +515,9 @@ class Handler(BaseHTTPRequestHandler):
                 dataset_name = (payload.get("config") or {}).get("dataset_name")
                 collector_type = payload.get("type", "external_dlt")
                 pid, created = self.state.register(pipeline_key, dataset_name, collector_type)
-                return self._reply(200, {"id": pid, "type": payload.get("type"), "name": pipeline_key, "created": created})
+                return self._reply(
+                    200, {"id": pid, "type": payload.get("type"), "name": pipeline_key, "created": created}
+                )
 
             # POST /collectors/{pid}/deployment/upload-url -- generalizes the real, confirmed
             # handle_collector_upload_url (B7) for a deployment tarball instead of a CSV. A
@@ -550,7 +565,9 @@ class Handler(BaseHTTPRequestHandler):
             import traceback
 
             traceback.print_exc()
-            return self._reply(500, {"error": {"type": "internal_server_error", "message": repr(e), "code": "INTERNAL_SERVER_ERROR"}})
+            return self._reply(
+                500, {"error": {"type": "internal_server_error", "message": repr(e), "code": "INTERNAL_SERVER_ERROR"}}
+            )
 
         self._reply(404, {"error": {"type": "not_found_error", "message": self.path, "code": "RESOURCE_NOT_FOUND"}})
 
@@ -565,7 +582,9 @@ class Handler(BaseHTTPRequestHandler):
                 pid = self.state.receive_upload(parts[1], self._body())
                 return self._reply(200, {"status": "ok", "pid": pid})
             except KeyError:
-                return self._reply(404, {"error": {"type": "not_found_error", "message": self.path, "code": "RESOURCE_NOT_FOUND"}})
+                return self._reply(
+                    404, {"error": {"type": "not_found_error", "message": self.path, "code": "RESOURCE_NOT_FOUND"}}
+                )
 
         if not self._auth():
             return
@@ -593,7 +612,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.state.submit_secrets(parts[1], payload.get("secrets") or {})
                 return self._reply(200, {"status": "ok"})
         except KeyError:
-            return self._reply(404, {"error": {"type": "not_found_error", "message": self.path, "code": "RESOURCE_NOT_FOUND"}})
+            return self._reply(
+                404, {"error": {"type": "not_found_error", "message": self.path, "code": "RESOURCE_NOT_FOUND"}}
+            )
         self._reply(404, {"error": {"type": "not_found_error", "message": self.path, "code": "RESOURCE_NOT_FOUND"}})
 
 
