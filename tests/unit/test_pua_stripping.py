@@ -7,17 +7,19 @@ import datetime
 import decimal
 import json
 
-from dlt_matterbeam import crf
-
 
 def _all_records(output_dir, recordtype_id):
-    import glob
     import os
 
     out = []
-    for path in sorted(glob.glob(os.path.join(output_dir, "crf_v2", recordtype_id, "*.zst"))):
-        for _rid, _rt, data in crf.read_segment(path):
-            out.append((data, json.loads(data)))
+    path = os.path.join(output_dir, f"{recordtype_id}.jsonl")
+    if not os.path.exists(path):
+        return out
+    with open(path, "rb") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                out.append((line, json.loads(line)))
     return out
 
 

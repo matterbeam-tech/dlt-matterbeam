@@ -31,12 +31,12 @@ def test_high_water_clamp_survives_a_server_clock_regression(fake_server, monkey
     last_id_1 = first.json()["data"]["last_record_id"]
     assert last_id_1 is not None
 
-    real_now_ms = server_mod.crf.now_ms
-    monkeypatch.setattr(server_mod.crf, "now_ms", lambda: real_now_ms() - 60_000)
+    real_now_ms = server_mod.segment_store.now_ms
+    monkeypatch.setattr(server_mod.segment_store, "now_ms", lambda: real_now_ms() - 60_000)
 
     second = http.post_chunk(base_url, pid, "t", "L1", "J2", 0, [{"i": "b", "v": {"id": 2}}])
     last_id_2 = second.json()["data"]["last_record_id"]
-    assert last_id_2 > last_id_1  # lexicographic == numeric here: both are 56-digit, zero-padded
+    assert last_id_2 > last_id_1  # lexicographic == numeric here: both are fixed-width, zero-padded
 
 
 def test_clamp_is_load_bearing(fake_server, monkeypatch):
@@ -52,8 +52,8 @@ def test_clamp_is_load_bearing(fake_server, monkeypatch):
     first = http.post_chunk(base_url, pid, "t", "L1", "J1", 0, [{"i": "a", "v": {"id": 1}}])
     last_id_1 = first.json()["data"]["last_record_id"]
 
-    real_now_ms = server_mod.crf.now_ms
-    monkeypatch.setattr(server_mod.crf, "now_ms", lambda: real_now_ms() - 60_000)
+    real_now_ms = server_mod.segment_store.now_ms
+    monkeypatch.setattr(server_mod.segment_store, "now_ms", lambda: real_now_ms() - 60_000)
 
     second = http.post_chunk(base_url, pid, "t", "L1", "J2", 0, [{"i": "b", "v": {"id": 2}}])
     last_id_2 = second.json()["data"]["last_record_id"]

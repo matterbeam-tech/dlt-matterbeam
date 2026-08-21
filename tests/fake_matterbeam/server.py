@@ -1,14 +1,15 @@
-"""A stand-in for the server side of Phase 2: the bulk CRF v2 ingest route, the
-HTTP-driven FSM entry path (C11), registration (C10/D6), and the dlt-state route (C6/D5).
+"""A stand-in for the server side of Phase 2: the bulk ingest route, the HTTP-driven FSM
+entry path (C11), registration (C10/D6), and the dlt-state route (C6/D5).
 
 Evolved from `spikes/dlt-matterbeam/fake_matterbeam/server.py` (task 04's de-risking
 spike) rather than written from scratch, with the §8.2 corrections folded in directly:
 ledger written *after* the commit (not "the natural order" hedge -- it's the chosen,
 correct order), two distinguishable 409 reasons instead of one generic contention error,
 and no fold-key declaration route (P3 is out of scope for this project, dropped rather
-than stood in for). It reuses this package's own `dlt_matterbeam.crf` for framing instead
-of vendoring a second copy, since Phase 1 already ships a clean-room writer the spike
-did not have.
+than stood in for). Segment storage is `segment_store.py`, an invented, plain-JSON
+format local to this test double -- deliberately not a reimplementation of the real
+backend's internal coldlog wire format; nothing here needs byte parity with anything
+real, only the ordering/dedup/clamp *behaviour* the design's claims rest on.
 
 It is NOT a Matterbeam simulator. It reimplements only the parts the design's claims rest
 on, from the findings log, with no Matterbeam imports:
@@ -16,8 +17,8 @@ on, from the findings log, with no Matterbeam imports:
   * per-pid FSM entry lock as a read-then-CAS pair on (update_version, invoke_semaphore),
     with two distinguishable 409 reasons: "lock_contention" (retryable) and "load_closed"
     / "paused" (terminal) -- B15 §3, C11, §8.2's D4 fix
-  * one segment per request, server-allocated record_ids, one PutObject-equivalent as the
-    commit -- B3, B10b, D11
+  * one segment per request, server-allocated record_ids, one commit-equivalent write --
+    B3, B10b, D11
   * server-side `mb.metadata` stamping incl. is_tombstone and the two D9/C7 fields
   * per-request writer_id allocation and a high-water clamp on begin_timestamp kept in
     the pid's process_state -- D1 layer 3, Phase 3's C3
@@ -54,7 +55,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import zstandard
-from dlt_matterbeam import crf
+
+from . import segment_store
 
 TOKEN = "fake-token"
 
@@ -348,7 +350,7 @@ class FakeMatterbeamState:
                     written_dlt_ids.append(dlt_id)
 
             # begin_timestamp at batch start (B2) -- what makes B7 reachable at all.
-            begin_ms = crf.now_ms()
+            begin_ms = segment_store.now_ms()
             if CLAMP_ON:  # D1 layer 3
                 begin_ms = max(begin_ms, rt_state.get("high_water_ms", 0) + 1)
 
@@ -358,7 +360,7 @@ class FakeMatterbeamState:
             first_id = last_id = None
             segment_key = None
             if records:
-                segment_key, first_id, last_id, _nbytes = crf.write_segment(
+                segment_key, first_id, last_id, _nbytes = segment_store.write_segment(
                     self.coldlog_root, recordtype_id, records, begin_ms, writer_id
                 )
                 with self.mu:

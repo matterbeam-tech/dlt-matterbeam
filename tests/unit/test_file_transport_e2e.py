@@ -2,12 +2,10 @@
 
 import json
 
-from dlt_matterbeam import crf
-
 
 def _fold(records, key_fields):
     state = {}
-    for _rid, rec in records:
+    for rec in records:
         k = ",".join(str(rec.get(f)) for f in key_fields)
         if rec["mb.metadata"].get("is_tombstone"):
             state.pop(k, None)
@@ -17,14 +15,13 @@ def _fold(records, key_fields):
 
 
 def _all_records(output_dir, recordtype_id):
-    import glob
     import os
 
-    records = []
-    for path in sorted(glob.glob(os.path.join(output_dir, "crf_v2", recordtype_id, "*.zst"))):
-        for rid, _rt, data in crf.read_segment(path):
-            records.append((rid, json.loads(data)))
-    return records
+    path = os.path.join(output_dir, f"{recordtype_id}.jsonl")
+    if not os.path.exists(path):
+        return []
+    with open(path, "rb") as f:
+        return [json.loads(line) for line in f if line.strip()]
 
 
 def test_merge_with_hard_delete_folds_correctly(pipeline_factory):
@@ -69,11 +66,11 @@ def test_merge_with_hard_delete_folds_correctly(pipeline_factory):
     assert state["2"]["plan"] == "enterprise"
     assert state["1"]["name"] == "ada"
 
-    tombstones = [r for _, r in records if r["mb.metadata"].get("is_tombstone")]
+    tombstones = [r for r in records if r["mb.metadata"].get("is_tombstone")]
     assert len(tombstones) == 1
     assert set(tombstones[0]) == {"id", "mb.metadata"}  # stripped to key fields (D3)
 
-    for _, r in records:
+    for r in records:
         assert not any(k.startswith("_dlt_") for k in r)  # D9: promoted to metadata, not body
         assert r["mb.metadata"].get("source_record_id")  # A17 §3a
 

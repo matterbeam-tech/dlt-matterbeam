@@ -2,13 +2,15 @@
 
 Everything above this line -- envelope construction, key extraction, disposition
 translation, PUA stripping -- is transport-agnostic. Below it, Phase 1 shipped exactly
-one implementation, `FileTransport`, writing real CRF v2 segments to a local directory
-with no server. Phase 2 adds `HttpTransport`, talking to a real Matterbeam account's REST
-API. The internal-only optional package (out of scope here, BRIEF §3) later adds a
-`DirectColdlogTransport` using the real `ColdlogWriter` in-process -- the "deployment
-seam" D6 describes. That is also why registration, state and the ingest write are all on
-this Protocol rather than only in `HttpTransport`: the in-runtime transport will answer
-them from `process_state` directly, in-process, with no network call at all.
+one implementation, `FileTransport`, writing plain newline-delimited JSON to a local
+directory with no server -- for local debugging only, so it makes no attempt to
+reproduce the real internal coldlog wire format. Phase 2 adds `HttpTransport`, talking to
+a real Matterbeam account's REST API. The internal-only optional package (out of scope
+here, BRIEF §3) later adds a `DirectColdlogTransport` using the real `ColdlogWriter`
+in-process -- the "deployment seam" D6 describes. That is also why registration, state
+and the ingest write are all on this Protocol rather than only in `HttpTransport`: the
+in-runtime transport will answer them from `process_state` directly, in-process, with no
+network call at all.
 
 Discovery mirrors dlt's own plugin resolution (A3): a transport is looked up by name, and
 anything other than the builtin `"file"` / `"http"` is resolved through the
@@ -31,7 +33,7 @@ from dlt.common.destination.exceptions import (
     DestinationTerminalException,
     DestinationTransientException,
 )
-from dlt_matterbeam import crf, envelope
+from dlt_matterbeam import envelope
 
 TRANSPORTS_ENTRY_POINT_GROUP = "dlt_matterbeam.transports"
 
@@ -88,12 +90,13 @@ class MatterbeamTransport(Protocol):
 
 
 class FileTransport:
-    """Phase 1 (D6): writes real CRF v2 segments to a local directory. No Matterbeam
-    imports, no network, no server-side identity -- `register`/state are no-ops, exactly
-    matching Phase 1's "WithStateSync not implemented, degrades silently" behaviour (A15).
-    Its own record_id allocation stands in for what the server allocates in Phase 2 (D1) --
-    there is no server here to do it, so `writer_id` stays hardcoded 0 (one local writer,
-    no fan-out).
+    """Phase 1 (D6): writes plain newline-delimited JSON to a local directory, purely for
+    local debugging -- there is no real Matterbeam account behind it, so it makes no
+    attempt to reproduce the real internal coldlog wire format (no CRF framing, no
+    compression, no record_id allocation). One human-readable `<recordtype_id>.jsonl`
+    file per table, appended to across runs. No Matterbeam imports, no network, no
+    server-side identity -- `register`/state are no-ops, exactly matching Phase 1's
+    "WithStateSync not implemented, degrades silently" behaviour (A15).
     """
 
     def __init__(self, root: str) -> None:
@@ -122,7 +125,9 @@ class FileTransport:
         seq: int,
         pid: Optional[str],
     ) -> str:
-        records = [
+        import os
+
+        lines = [
             envelope.encode_record(
                 envelope.build_record(
                     row, record_type_id=recordtype_id, keys=keys, hard_delete=hard_delete, load_id=load_id
@@ -130,8 +135,12 @@ class FileTransport:
             )
             for row in rows
         ]
-        begin_ms = crf.now_ms()
-        key, _first_id, _last_id, _nbytes = crf.write_segment(self.root, recordtype_id, records, begin_ms, writer_id=0)
+        os.makedirs(self.root, exist_ok=True)
+        key = f"{recordtype_id}.jsonl"
+        with open(os.path.join(self.root, key), "ab") as f:
+            for line in lines:
+                f.write(line)
+                f.write(b"\n")
         return key
 
     def complete_load(self, load_id: str, pid: Optional[str]) -> None:

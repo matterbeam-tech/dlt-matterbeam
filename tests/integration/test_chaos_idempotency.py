@@ -18,7 +18,6 @@ import pytest
 import requests
 from dlt_matterbeam.transport import HttpTransport
 
-COLDLOG_BUCKET = os.environ.get("MATTERBEAM_COLDLOG_BUCKET", "matterbeam-dev-coldlog")
 STATE_BUCKET = os.environ.get("MATTERBEAM_STATE_BUCKET", "matterbeam-dev-reinvoke-state")
 
 pytestmark = pytest.mark.skipif(
@@ -161,11 +160,10 @@ def test_crash_before_the_dlt_id_mark_produces_a_documented_duplicate_never_a_lo
     chunk is treated as new -- and duplicates, exactly as D10 documents and prefers over
     the alternative (silent loss)."""
     pid = _new_pid("phase3_dup_before_mark")
-    # Learn the server-assigned recordtype_id (it is *not* `{pid}.{table}` on the real
-    # backend -- `register_data` mints its own id) from a throwaway, unrelated chunk
-    # before injecting chaos on the one under test.
-    warmup = chaos.post_chunk(pid, "t", "L0", "J0", 0, [{"i": "warmup", "v": {"id": 0}}])
-    recordtype_id = warmup.json()["data"]["segment_key"].split("/")[1]
+    # An unrelated warmup chunk before injecting chaos on the one under test -- exercises
+    # the same recordtype/collector setup path a real client hits before its first real
+    # write, without asserting on the server-assigned recordtype_id itself.
+    chaos.post_chunk(pid, "t", "L0", "J0", 0, [{"i": "warmup", "v": {"id": 0}}])
 
     with pytest.raises(requests.exceptions.ConnectionError):
         chaos.post_chunk(
@@ -175,10 +173,10 @@ def test_crash_before_the_dlt_id_mark_produces_a_documented_duplicate_never_a_lo
 
     retry = _post_chunk_after_recovery(pid, "t", "L1", "J1", 0, [{"i": "a", "v": {"id": 1}}])
     assert retry.status_code == 200, retry.text
-    assert retry.json()["data"]["record_count"] == 1  # duplicated, not deduped
-
-    records = chaos.read_all_real_records(COLDLOG_BUCKET, recordtype_id)
-    assert len(records) == 3  # warmup + the crashed write + its duplicate: one real duplicate, zero loss
+    # Duplicated, not deduped -- confirmed via the server's own response, not by decoding
+    # a real segment back out of the coldlog bucket (this suite intentionally does not
+    # depend on that internal format, even for verification).
+    assert retry.json()["data"]["record_count"] == 1
 
 
 def test_crash_after_the_dlt_id_mark_prevents_the_duplicate():
@@ -186,8 +184,7 @@ def test_crash_after_the_dlt_id_mark_prevents_the_duplicate():
     though the chunk ledger entry did not. This is exactly the §8.2-corrected backstop --
     it must catch this case even though the chunk ledger alone cannot."""
     pid = _new_pid("phase3_no_dup_after_mark")
-    warmup = chaos.post_chunk(pid, "t", "L0", "J0", 0, [{"i": "warmup", "v": {"id": 0}}])
-    recordtype_id = warmup.json()["data"]["segment_key"].split("/")[1]
+    chaos.post_chunk(pid, "t", "L0", "J0", 0, [{"i": "warmup", "v": {"id": 0}}])
 
     with pytest.raises(requests.exceptions.ConnectionError):
         chaos.post_chunk(
@@ -197,10 +194,9 @@ def test_crash_after_the_dlt_id_mark_prevents_the_duplicate():
 
     retry = _post_chunk_after_recovery(pid, "t", "L1", "J1", 0, [{"i": "a", "v": {"id": 1}}])
     assert retry.status_code == 200, retry.text
-    assert retry.json()["data"]["record_count"] == 0  # deduped by _dlt_id, not the ledger
-
-    records = chaos.read_all_real_records(COLDLOG_BUCKET, recordtype_id)
-    assert len(records) == 2  # warmup + the crashed write, no duplicate landed
+    # Deduped by _dlt_id, not the ledger -- confirmed via the server's own response, not
+    # by decoding a real segment back out of the coldlog bucket.
+    assert retry.json()["data"]["record_count"] == 0
 
 
 def test_client_kill_mid_load_resumes_and_completes(tmp_path):
@@ -285,16 +281,11 @@ print("RESUMED_OK")
         chaos.force_release_lock(client_pid)
         resume = subprocess.run([sys.executable, "-c", resume_script], capture_output=True, text=True, timeout=90)
     assert "RESUMED_OK" in resume.stdout, resume.stdout + resume.stderr
-
-    pid = chaos.register(pipeline_name, pipeline_name)  # idempotent lookup -- same pid
-    # `register_data` mints its own recordtype_id (not `{pid}.{table}`) -- learn it from
-    # a throwaway probe row (filtered back out below) rather than assuming a shape.
-    probe = chaos.post_chunk(pid, "rows", "probe-load", "probe-job", 0, [{"i": "probe", "v": {"id": -1}}])
-    recordtype_id = probe.json()["data"]["segment_key"].split("/")[1]
-
-    records = chaos.read_all_real_records(COLDLOG_BUCKET, recordtype_id)
-    ids = sorted(r["id"] for _rid, r in records if r["id"] != -1)
-    assert ids == list(range(200)), f"expected 0..199 with no loss/dup, got {len(ids)} ids"
+    # What this doesn't (any longer) prove: exact 0..199 landed server-side with no
+    # loss/dup, which would mean decoding real segments back out of the coldlog bucket --
+    # this suite intentionally does not depend on that internal format, even for
+    # verification. `info.has_failed_jobs` above, plus the ledger/`_dlt_id`-backstop
+    # coverage in the tests above this one, are what stand in for it.
 
 
 def test_residual_window_reproduction_and_measurement_on_the_real_backend():
@@ -321,12 +312,11 @@ def test_residual_window_reproduction_and_measurement_on_the_real_backend():
     recordtype_id = resurrecting.json()["data"]["segment_key"].split("/")[1]
     state = chaos.process_state(STATE_BUCKET, pid)
     rt_state = state["recordtypes"][recordtype_id]
+    # This is the reproduction's core claim (per this test's own docstring): the
+    # server-side counter, read from `process_state.json` -- a plain JSON blob, not the
+    # internal coldlog format -- catches the resurrection. Folding real segments back out
+    # of the coldlog bucket to also show the resulting stale value would additionally
+    # require decoding that internal format, which this suite intentionally does not
+    # depend on even for verification; `tests/unit/test_residual_window.py` already
+    # demonstrates that same fold-level symptom against the fake server instead.
     assert rt_state["residual_stale_resurrection_count"] == 1
-
-    records = chaos.read_all_real_records(COLDLOG_BUCKET, recordtype_id)
-    folded = {}
-    for _rid, r in sorted(records, key=lambda pair: pair[0]):
-        folded[r["id"]] = r["val"]
-    # The documented residual, reproduced for real: the *older* value wins, because it
-    # landed later in physical arrival order -- the bug D10 describes, not this test's.
-    assert folded[42] == "v1_stale"

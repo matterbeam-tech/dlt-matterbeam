@@ -47,8 +47,9 @@ itself with dlt's plugin system on install.
 
 Transport defaults to `http`, so running this exact snippet requires the `matterbeam_url`/
 `api_token` shown above. For local debugging/testing with no Matterbeam account, pass
-`transport="file"` explicitly — it writes segments to a local directory instead
-(`output_dir`, default `.dlt/matterbeam_coldlog`) and is not chosen implicitly.
+`transport="file"` explicitly — it writes one human-readable, newline-delimited JSON file
+per table to a local directory instead (`output_dir`, default `.dlt/matterbeam_coldlog`)
+and is not chosen implicitly.
 
 ## Deploy to Matterbeam
 

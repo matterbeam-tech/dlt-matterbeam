@@ -1,7 +1,15 @@
 """Helpers for Phase 3's chaos tests against a real dev account: talking to the ingest
 route directly (precise control over load_id/job_id/seq/chaos-crash-point, faster than
-driving a whole pipeline for scenarios that don't need one), and reading real segments
-back out of the real coldlog bucket to verify what actually landed.
+driving a whole pipeline for scenarios that don't need one), and reading back
+`process_state.json` -- a plain JSON blob, not internal-format-specific -- to check
+server-side counters.
+
+This suite deliberately does NOT read real segments back out of the real coldlog bucket:
+doing so would mean decoding the real backend's internal on-disk format, which this
+public package's test suite should not depend on even for verification purposes. What
+that gives up is checking exact record-level content server-side; response-level fields
+(`record_count`, `duplicate`, `segment_key`, `last_record_id`) and `process_state`'s own
+counters are what's asserted on instead.
 
 Not a test file itself.
 """
@@ -15,7 +23,6 @@ from typing import Optional
 
 import requests
 import zstandard
-from dlt_matterbeam import crf
 
 
 def base_url() -> str:
@@ -168,35 +175,3 @@ def process_state(bucket: str, pid: str) -> dict:
             ["aws", "s3", "cp", f"s3://{bucket}/{key}", f.name], env=_aws_env(), check=True, capture_output=True
         )
         return json.load(open(f.name))
-
-
-def read_all_real_records(bucket: str, recordtype_id: str) -> list[tuple[int, dict]]:
-    """List and read back every real segment for a recordtype from the real coldlog
-    bucket, using this package's own clean-room CRF v2 reader (framing is documented
-    byte-parity with the real writer, `tests/vendor_parity`) -- not the internal
-    `matterbeam_shared` reader, which the public package must never import.
-
-    Shells out to the AWS CLI rather than importing boto3: boto3 isn't (and shouldn't
-    need to be) a dependency of this package or its test suite, and the CLI is already
-    what every other environment note in this project assumes is available."""
-    import subprocess
-
-    prefix = f"crf_v2/{recordtype_id}/"
-    listing = subprocess.run(
-        ["aws", "s3api", "list-objects-v2", "--bucket", bucket, "--prefix", prefix, "--output", "json"],
-        capture_output=True,
-        text=True,
-        env=_aws_env(),
-        check=True,
-    )
-    keys = [obj["Key"] for obj in (json.loads(listing.stdout).get("Contents") or [])]
-
-    records: list[tuple[int, dict]] = []
-    for key in keys:
-        with tempfile.NamedTemporaryFile(suffix=".zst") as f:
-            subprocess.run(
-                ["aws", "s3", "cp", f"s3://{bucket}/{key}", f.name], env=_aws_env(), check=True, capture_output=True
-            )
-            for rid, _rt, data in crf.read_segment(f.name):
-                records.append((rid, json.loads(data)))
-    return records

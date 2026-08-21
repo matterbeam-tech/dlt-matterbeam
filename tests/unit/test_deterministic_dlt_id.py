@@ -4,17 +4,19 @@ here in the real package, not just a probe."""
 
 import json
 
-from dlt_matterbeam import crf
-
 
 def _dlt_ids_by_key(output_dir, recordtype_id):
-    import glob
     import os
 
     ids = {}
-    for path in sorted(glob.glob(os.path.join(output_dir, "crf_v2", recordtype_id, "*.zst"))):
-        for _rid, _rt, data in crf.read_segment(path):
-            rec = json.loads(data)
+    path = os.path.join(output_dir, f"{recordtype_id}.jsonl")
+    if not os.path.exists(path):
+        return ids
+    with open(path, "rb") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            rec = json.loads(line)
             ids.setdefault(rec["id"], []).append(rec["mb.metadata"]["source_record_id"])
     return ids
 

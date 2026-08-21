@@ -1,4 +1,3 @@
-import glob
 import itertools
 import os
 import sys
@@ -79,19 +78,16 @@ def pipeline_factory(tmp_path):
     return make
 
 
-def segments_for(pipeline, table_name: str) -> list[str]:
+def output_path_for(pipeline, table_name: str) -> str:
     output_dir = pipeline.destination_client(pipeline.default_schema).config.output_dir
-    pattern = os.path.join(output_dir, "crf_v2", f"{pipeline.dataset_name}.{table_name}", "*.zst")
-    return sorted(glob.glob(pattern))
+    return os.path.join(output_dir, f"{pipeline.dataset_name}.{table_name}.jsonl")
 
 
-def read_all_records(pipeline, table_name: str):
-    from dlt_matterbeam import crf
+def read_all_records(pipeline, table_name: str) -> list[dict]:
+    import json
 
-    records = []
-    for path in segments_for(pipeline, table_name):
-        for rid, _rt, data in crf.read_segment(path):
-            import json
-
-            records.append((rid, json.loads(data)))
-    return records
+    path = output_path_for(pipeline, table_name)
+    if not os.path.exists(path):
+        return []
+    with open(path, "rb") as f:
+        return [json.loads(line) for line in f if line.strip()]

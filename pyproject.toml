@@ -24,5 +24,4 @@ packages = ["src/dlt_matterbeam"]
 testpaths = ["tests/unit"]
 markers = [
     "integration: needs MATTERBEAM_API_TOKEN / MATTERBEAM_BASE_URL (not collected by default)",
-    "vendor_parity: needs a readable ../../backend checkout with matterbeam_shared importable",
 ]

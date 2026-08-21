@@ -1,6 +1,6 @@
 """Reader + fold, playing the emitter's role -- evolved from
-`spikes/dlt-matterbeam/fake_matterbeam/fold.py`, reusing `dlt_matterbeam.crf` for framing
-instead of a vendored copy.
+`spikes/dlt-matterbeam/fake_matterbeam/fold.py`, reading back this test suite's own
+invented segment format (`segment_store.py`) rather than any real internal one.
 
 Reader reproduces B7 exactly: segments are listed in lexicographic key order and consumed
 under a strictly monotonic cursor, so a segment whose last_record_id sorts below the
@@ -16,12 +16,12 @@ from __future__ import annotations
 import json
 import os
 
-from dlt_matterbeam import crf
+from . import segment_store
 
 
 def scan(root: str, recordtype_id: str, cursor: str = "0") -> tuple[list[tuple[int, dict]], list[str]]:
     """Returns (facts, dropped_keys). facts: [(record_id, dict)] in replay order."""
-    directory = os.path.join(root, "crf_v2", recordtype_id)
+    directory = os.path.join(root, "segments", recordtype_id)
     if not os.path.isdir(directory):
         return [], []
 
@@ -34,7 +34,7 @@ def scan(root: str, recordtype_id: str, cursor: str = "0") -> tuple[list[tuple[i
         if last_id <= cursor:  # start_after: never listed, never read (B7)
             dropped.append(key)
             continue
-        for rid, _rt, data in crf.read_segment(os.path.join(directory, key)):
+        for rid, data in segment_store.read_segment(os.path.join(directory, key)):
             facts.append((rid, json.loads(data)))
         cursor = last_id
     return facts, dropped
