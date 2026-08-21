@@ -1,6 +1,6 @@
-"""Phase 2's own stated demo (design doc §6): run two pipelines at once and watch them
-proceed concurrently; run the same pipeline twice at once and watch the second get a 409
-that it survives by retrying. Both exercised directly against the fake server's FSM lock.
+"""Run two pipelines at once and watch them proceed concurrently; run the same pipeline
+twice at once and watch the second get a 409 that it survives by retrying. Both exercised
+directly against the fake server's FSM lock.
 """
 
 import threading
@@ -42,10 +42,10 @@ def test_two_different_pipelines_proceed_concurrently(http_pipeline_factory):
     assert results == ["ok", "ok"]
     assert len(state.pids) == 2  # two different pipelines, two different pids
 
-    # recordtype_id is (pid, table) now, not (dataset_name, table) -- a pid is already
+    # recordtype_id is (pid, table), not (dataset_name, table) -- a pid is already
     # 1:1-bound to one dataset_name at registration, so dataset_name would be a second,
-    # redundant axis of identity (design doc Phase 2 report). Look the real pids up from
-    # the fake server's registry rather than guessing the id shape.
+    # redundant axis of identity. Look the real pids up from the fake server's registry
+    # rather than guessing the id shape.
     pid_a = state.registry[f"{pipeline_a.pipeline_name}|ds_a"]
     pid_b = state.registry[f"{pipeline_b.pipeline_name}|ds_b"]
     facts_a, _ = fold.scan(state.coldlog_root, f"{pid_a}.rows")
@@ -55,13 +55,13 @@ def test_two_different_pipelines_proceed_concurrently(http_pipeline_factory):
 
 
 def test_same_pipeline_run_twice_at_once_gets_a_409_and_still_lands_correctly(http_pipeline_factory):
-    """ "Two laptops running the same pipeline name" (design doc D5/D6): the second run
+    """ "Two laptops running the same pipeline name": the second run
     must not silently drop data or duplicate it -- the entry lock serialises the two, one
     of them retries through `lock_contention`, and the fold ends up identical to what a
     clean sequential run would have produced."""
     make_pipeline, state = http_pipeline_factory
     # Widen the entry lock's hold time so two genuinely concurrent requests are certain to
-    # contend, rather than racing real request latency (matching the spike's MB_JITTER_MS).
+    # contend, rather than racing real request latency.
     state.ingest_jitter_ms = 200
     # Same pipeline_name, same dataset_name -> same registration key -> same pid, exactly
     # the "two laptops" scenario -- distinct pipeline objects/dirs, not one object reused.

@@ -1,6 +1,5 @@
-"""Phase 3 (design doc C4/D10): the chunk ledger, the record-level `_dlt_id` backstop
-that must run on *every* chunk (not only once a ledger entry has expired -- the spike's
-own §8.2 finding), and the `complete_load` bound.
+"""The chunk ledger, the record-level `_dlt_id` backstop that must run on *every* chunk
+(not only once a ledger entry has expired), and the `complete_load` bound.
 
 Driven directly over HTTP against the fake server (`_direct_http.py`) rather than through
 a whole dlt pipeline: these mechanics are server-internal, and constructing an exact
@@ -32,10 +31,10 @@ def test_duplicate_chunk_resend_is_a_noop(fake_server):
 
 
 def test_record_level_dedup_catches_a_replay_after_the_ledger_entry_is_gone(fake_server):
-    """The exact §8.2 crash window: a chunk commits, then (for any reason -- TTL expiry
-    in production, simulated here by just deleting the entry) its ledger entry is gone.
-    A naive "ledger only" implementation would duplicate the chunk on retry; the
-    record-level `_dlt_id` backstop must catch it anyway."""
+    """A chunk commits, then (for any reason -- TTL expiry in production, simulated here
+    by just deleting the entry) its ledger entry is gone. A naive "ledger only"
+    implementation would duplicate the chunk on retry; the record-level `_dlt_id`
+    backstop must catch it anyway."""
     base_url, state = fake_server
     pid = http.register(base_url, "pl", "ds")
     rows = [{"i": "a", "v": {"id": 1}}, {"i": "b", "v": {"id": 2}}]

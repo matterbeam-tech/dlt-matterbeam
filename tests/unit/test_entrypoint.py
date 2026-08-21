@@ -1,4 +1,4 @@
-"""Resolving `destination="matterbeam"` by name on unmodified, pypi-installed dlt (A3)."""
+"""Resolving `destination="matterbeam"` by name on unmodified, pypi-installed dlt."""
 
 import dlt
 

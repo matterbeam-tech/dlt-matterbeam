@@ -1,14 +1,13 @@
-"""Reader + fold, playing the emitter's role -- evolved from
-`spikes/dlt-matterbeam/fake_matterbeam/fold.py`, reading back this test suite's own
+"""Reader + fold, playing the emitter's role -- reading back this test suite's own
 invented segment format (`segment_store.py`) rather than any real internal one.
 
-Reader reproduces B7 exactly: segments are listed in lexicographic key order and consumed
-under a strictly monotonic cursor, so a segment whose last_record_id sorts below the
-cursor is never listed and never read. That silent drop is the failure mode the whole
-ordering argument exists to prevent, so the reader must keep it rather than sort segments
-into the right order.
+The reader reproduces the real ordering guarantee exactly: segments are listed in
+lexicographic key order and consumed under a strictly monotonic cursor, so a segment
+whose last_record_id sorts below the cursor is never listed and never read. That silent
+drop is the failure mode the whole ordering argument exists to prevent, so the reader
+must keep it rather than sort segments into the right order.
 
-Fold is last-value-wins by replay order plus tombstones (B4/B5a).
+Fold is last-value-wins by replay order plus tombstones.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ def scan(root: str, recordtype_id: str, cursor: str = "0") -> tuple[list[tuple[i
         if key.endswith(".tmp"):
             continue
         last_id = key.split(".")[0]
-        if last_id <= cursor:  # start_after: never listed, never read (B7)
+        if last_id <= cursor:  # start_after: never listed, never read
             dropped.append(key)
             continue
         for rid, data in segment_store.read_segment(os.path.join(directory, key)):

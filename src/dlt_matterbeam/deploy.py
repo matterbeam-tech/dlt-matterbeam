@@ -1,37 +1,16 @@
-"""Task 2 of the upload-to-running walkthrough (BRIEF §1 steps 3-5): pid handoff, secret
-submission, and package upload via presigned S3. Pass-1 gate classification (step 2) is
-`gate.py`'s job; this module picks up once `gate.py` has already confirmed a script is a
-matterbeam collector.
+"""Deploys a dlt pipeline to Matterbeam: pid handoff, secret submission, and package
+upload via presigned S3. Pass-1 gate classification is `gate.py`'s job; this module
+picks up once `gate.py` has already confirmed a script is a matterbeam collector.
 
-Backend status, updated now that `../backend` is writable for this half of the project and
-all three routes below are real, live, and exercised against a running dev server
-(`http://localhost:4040`), not just modeled against the fake test server:
-- `POST /collectors` with `type=hosted_dlt` -- a new sibling case next to `external_dlt` in
-  `handle_create_collector` (`legacy/handlers/collectors.py`), reusing the exact same
-  `DLT_PROCESS#{pipeline_key}|{dataset_name}` claim key and lookup-or-create mechanism.
-  Confirmed live: a fresh claim creates `collector_type=hosted_dlt`/`execution=hosted`/
-  `runtime=ecs`; a claim already resolved to an `external_dlt` collector is transitioned in
-  place (`_adopt_collector_as_hosted`, calling the already-real `set_pid_runtime`) -- verified
-  against the dev server that the *same* pid comes back and its FSM `runtime` flips from
-  `lambda` to `ecs`.
-- `PATCH /collectors/{pid}/secrets` -- a new route (`domains/deploy/repository.py`,
-  `routers/collectors_ext/router.py`), not the legacy `PATCH /collectors/{id}` reclassify
-  path (see `submit_secrets`'s docstring for why). Confirmed live: values land KMS-encrypted
-  via the same `matterbeam_shared.secrets.encrypt` helper the legacy path uses.
-- `POST /collectors/{pid}/deployment/upload-url` -- deliberately **not** the same path as the
-  legacy CSV upload-url route (`POST /collectors/{collectorId}/upload-url`), since
-  `collectors_ext`'s router is included before the legacy router in `app.py` and would
-  otherwise shadow it for every collector. Also **not** the same bucket: both routes now
-  share a dedicated `CustomerUploads` bucket (`matterbeam-<customer>-uploads`,
-  `aws-infra/lib/constructs/data-core/customer-uploads.ts`) instead of the old, 14-day-
-  expiring `exports` bucket -- the CSV route keeps a 14-day-expiring `file-uploads/`
-  prefix, this route gets a non-expiring `deployments/dlt/{pid}/` prefix, since the
-  runtime task restores from this object on every cold invocation. Confirmed live:
-  returns a real presigned S3 `PutObject` URL, and a real `PUT` to it succeeds.
+Talks to three routes on the customer REST API:
+- `POST /collectors` with `type=hosted_dlt` -- registers (or adopts) a pid, reusing the
+  same claim-key/lookup-or-create mechanism as `type=external_dlt`.
+- `PATCH /collectors/{pid}/secrets` -- submits secret values, which land KMS-encrypted.
+- `POST /collectors/{pid}/deployment/upload-url` -- a presigned S3 `PutObject` URL for
+  the packaged pipeline, under a non-expiring `deployments/dlt/{pid}/` prefix (the
+  runtime task restores from this object on every cold invocation).
 
-Tests still exercise the fake server (`tests/fake_matterbeam`), same as Phase 2's
-`HttpTransport` before `external_dlt` existed for real -- the dev-server checks above were a
-one-time verification, not a substitute for the unit suite.
+Tests exercise the fake server (`tests/fake_matterbeam`), not a live account.
 """
 
 from __future__ import annotations
@@ -57,9 +36,9 @@ _TERMINAL_BUILD_STATUSES = {"ready", "failed"}
 
 # Mirrors WorkspaceFileSelector's DEFAULT_IGNORES (dlt/_workspace/deployment/file_selector.py)
 # closely enough for a single-script project; kept local rather than imported since that
-# selector is built around a full dlt *workspace* (profiles, WorkspaceRunContext) this
-# project's "one script path" input model (A11) doesn't have. `*.secrets.toml` is excluded
-# unconditionally below, not via this list -- R10 §2's decision, not a default-ignore pattern.
+# selector is built around a full dlt *workspace* (profiles, WorkspaceRunContext), which
+# a bare "one script path" input model doesn't have. `*.secrets.toml` is excluded
+# unconditionally below, not via this list.
 _IGNORED_DIR_NAMES = {
     "__pycache__",
     ".venv",
@@ -79,14 +58,14 @@ _FILES_PREFIX = "files"
 
 
 class DeployError(Exception):
-    """Raised for a Task 2 failure that isn't already a `MatterbeamGateError` -- a missing
+    """Raised for a deploy failure that isn't already a `MatterbeamGateError` -- a missing
     destination credential, a secret the customer needs to set locally and redeploy, or a
     failed register/secrets/upload-url call."""
 
 
 @dataclasses.dataclass
 class CollectorDeployInfo:
-    """Everything Task 2 needs about the pipeline, recovered once and reused across the
+    """Everything a deploy needs about the pipeline, recovered once and reused across the
     register/secrets/upload steps."""
 
     pipeline_name: str
@@ -98,10 +77,10 @@ class CollectorDeployInfo:
 @dataclasses.dataclass
 class SecretItem:
     key: str
-    """`EnvironProvider`'s `SECTION__SUBSECTION__KEY` convention (R10 §1/§4) -- the shape the
-    hosted runtime task will eventually set as a process env var immediately before
-    `pipeline.run()` (R10 §4), so nothing needs translating between "what got submitted" and
-    "what the runtime sets" once that piece is built."""
+    """`EnvironProvider`'s `SECTION__SUBSECTION__KEY` convention -- the shape the hosted
+    runtime task will eventually set as a process env var immediately before
+    `pipeline.run()`, so nothing needs translating between "what got submitted" and "what
+    the runtime sets" once that piece is built."""
     value: str
 
 
@@ -117,28 +96,26 @@ class DeployResult:
     package_content_hash: str
     secret_count: int
     build_triggered: bool = False
-    """False whenever `trigger_build` itself raised (e.g. `501` -- the dlt-package-builder
-    component isn't deployed/published to this customer account yet, `domains/deploy/
-    repository.py`'s `_package_builder_lambda_arn`) -- deploy() swallows that one specific
-    failure rather than failing the whole command, since upload having already succeeded
-    is real, useful progress even if the build can't be kicked off yet (BRIEF §1 step 6
-    is this project's own newest piece)."""
+    """False whenever `trigger_build` returns `False` (e.g. a `501` -- the
+    dlt-package-builder component isn't deployed/published to this customer account yet)
+    -- `deploy()` swallows that one specific failure rather than failing the whole
+    command, since upload having already succeeded is real, useful progress even if the
+    build can't be kicked off yet."""
     build_status: Optional[str] = None
-    """Populated by `deploy()`'s post-trigger poll (Task 4 item 1) -- `None` whenever
-    `build_triggered` is False (nothing to poll). One of the `[build]` failure-tag
-    taxonomy's terminal values (`ready`/`failed`) if the poll resolved in time, or
-    `"building"` if the bounded poll window elapsed first -- the caller (`cli.py`) tells
-    those apart to decide what to print."""
+    """Populated by `deploy()`'s post-trigger poll -- `None` whenever `build_triggered`
+    is False (nothing to poll). One of the terminal values (`ready`/`failed`) if the
+    poll resolved in time, or `"building"` if the bounded poll window elapsed first --
+    the caller (`cli.py`) tells those apart to decide what to print."""
     build_error: Optional[str] = None
     installed_packages: Dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 def gather_deploy_info(pipeline_script_path: str) -> CollectorDeployInfo:
-    """Resolves `pipeline_name`/`dataset_name` (literal constructor args, safe under the gate's
-    ephemeral run) and the destination's own resolved `matterbeam_url`/`api_token` -- reusing
-    the exact Matterbeam account credentials the pipeline's own matterbeam destination is
-    already configured with, rather than asking the customer to set up a second one (BRIEF
-    §4.1, vanilla dlt authoring; identity-and-handoff-options.md §4)."""
+    """Resolves `pipeline_name`/`dataset_name` (literal constructor args, safe under the
+    gate's ephemeral run) and the destination's own resolved `matterbeam_url`/`api_token`
+    -- reusing the exact Matterbeam account credentials the pipeline's own matterbeam
+    destination is already configured with, rather than asking the customer to set up a
+    second one."""
     from dlt.common.configuration.exceptions import ConfigurationValueError
 
     with open_collector_pipeline(pipeline_script_path) as pipeline:
@@ -165,10 +142,10 @@ def gather_deploy_info(pipeline_script_path: str) -> CollectorDeployInfo:
 
 
 def recover_secrets(pipeline_script_path: str) -> List[SecretItem]:
-    """R10 §1/§3: recover secret *names* the same way `dlt deploy` does -- from the pipeline's
+    """Recovers secret *names* the same way `dlt deploy` does -- from the pipeline's
     own last **real** local run trace (`resolved_config_values`), via `dlt.attach` +
     `get_state_and_trace`, dlt's own precondition-checked mechanism (`_deploy_command_helpers`)
-    -- then read their *values* locally and submit them separately (`submit_secrets`), never
+    -- then reads their *values* locally and submits them separately (`submit_secrets`), never
     trusting the trace's own value for a secret: dlt itself stopped storing it there ("Starting
     from 1.0 version of dlt, those are not stored in the traces", `_deploy_command_helpers.py`'s
     own `_display_missing_secret_info`).
@@ -196,9 +173,9 @@ def recover_secrets(pipeline_script_path: str) -> List[SecretItem]:
         visitor = get_visitors(script_source, pipeline_script_path)
         possible_pipelines = parse_pipeline_info(visitor)
         if possible_pipelines:
-            # Task 2 needs one pipeline's secrets, not an interactive disambiguation prompt
+            # One pipeline's secrets are needed, not an interactive disambiguation prompt
             # (`dlt deploy`'s own behavior for >1 candidate) -- the gate already established
-            # exactly one collector pipeline exists in this script (A11), so the first hit
+            # exactly one collector pipeline exists in this script, so the first hit
             # recovered by AST is the one we want.
             pipeline_name, pipelines_dir = possible_pipelines[0]
     except CliCommandInnerException as ex:
@@ -223,17 +200,14 @@ def recover_secrets(pipeline_script_path: str) -> List[SecretItem]:
                 continue
             if resolved.sections and resolved.sections[0] == "destination":
                 # The matterbeam destination's own credential (`[destination.matterbeam]
-                # api_token`, sections=('destination', 'matterbeam') -- confirmed by reading
-                # a real trace) is how the *external* HttpTransport authenticates to
-                # Matterbeam. A hosted pipeline doesn't need it: once uploaded, it's already
-                # authenticated as itself for internal calls (the runtime hands it identity
-                # via BEAMIX_PID, same as every other beamix component), and the in-runtime
-                # transport (`[internal-log]`) doesn't make an HTTP call at all. Submitting
-                # it anyway would mean re-encrypting and storing a credential the hosted run
-                # never reads -- R10 scopes this mechanism to *source* credentials
-                # ("what a dlt pipeline needs source credentials to do anything," §1), not
-                # the destination's own auth, so any `destination.*` section is out of scope
-                # here regardless of which destination it names.
+                # api_token`, sections=('destination', 'matterbeam')) is how the *external*
+                # HttpTransport authenticates to Matterbeam. A hosted pipeline doesn't need
+                # it: once uploaded, it's already authenticated as itself for internal calls
+                # (the runtime hands it identity via BEAMIX_PID, same as every other beamix
+                # component), and the in-runtime transport doesn't make an HTTP call at
+                # all. Submitting it anyway would mean re-encrypting and storing a
+                # credential the hosted run never reads, so any `destination.*` section is
+                # out of scope here regardless of which destination it names.
                 continue
             env_key = EnvironProvider.get_key_name(resolved.key, *resolved.sections)
             if env_key in seen:
@@ -259,7 +233,7 @@ def _iter_package_files(root: Path):
             if name.endswith(_IGNORED_FILE_SUFFIXES):
                 continue
             if name.endswith("secrets.toml"):
-                # R10 §2: secrets never enter the code package, even though dlt's own
+                # Secrets never enter the code package, even though dlt's own
                 # `ConfigurationFileSelector` would include them by default.
                 continue
             abs_path = Path(dirpath) / name
@@ -268,9 +242,9 @@ def _iter_package_files(root: Path):
 
 class _HashingReader:
     """Mirrors dlt's own `PackageBuilder._HashingReader` (`dlt_package_builder.py`) -- same
-    sha3_256-while-streaming shape, reimplemented locally rather than imported since that class
-    is a private (`_`-prefixed) implementation detail of a builder tied to `WorkspaceRunContext`
-    (see module docstring)."""
+    sha3_256-while-streaming shape, reimplemented locally rather than imported since that
+    class is a private (`_`-prefixed) implementation detail of a builder tied to a full dlt
+    workspace (`WorkspaceRunContext`), which a bare pipeline-script path doesn't have."""
 
     def __init__(self, fileobj) -> None:
         self._f = fileobj
@@ -286,7 +260,7 @@ class _HashingReader:
 
 
 def _compute_content_hash(sorted_files: List[dict]) -> str:
-    """Same construction as dlt's `compute_package_content_hash` (A3): a hash over the sorted
+    """Same construction as dlt's `compute_package_content_hash`: a hash over the sorted
     `(relative_path, sha3_256)` pairs. `sorted_files` must already be sorted by `relative_path`."""
     h = hashlib.sha3_256()
     for item in sorted_files:
@@ -300,14 +274,13 @@ _DEPENDENCY_SPEC_NAMES = {"requirements.txt", "pyproject.toml"}
 
 def _frozen_requirements_bytes() -> bytes:
     """A `pip freeze`-equivalent built from `importlib.metadata` alone -- no `pip`/
-    `pipdeptree` subprocess, matching cli-and-upload-options.md §1's reasoning for why
-    this design doesn't inherit `dlt`'s own `[cli]` extra (that extra exists for
-    `dlt deploy`'s dependency-tree walk, which this design deliberately doesn't need).
+    `pipdeptree` subprocess, and no dependency on `dlt`'s own `[cli]` extra (that extra
+    exists for `dlt deploy`'s dependency-tree walk, which isn't needed here).
     Used only as a fallback (see `build_package`) for the common case of a single-script
-    customer pipeline with no `requirements.txt`/`pyproject.toml` of its own: A11's own
-    "this pass gets importability for free" reasoning applies here too -- whatever's
+    customer pipeline with no `requirements.txt`/`pyproject.toml` of its own: whatever's
     importable in the customer's local environment, where the gate and this packaging
-    step both already run, is exactly what the server-side build step needs to reproduce."""
+    step both already run, is exactly what the server-side build step needs to
+    reproduce."""
     from importlib.metadata import distributions
 
     seen: Dict[str, str] = {}
@@ -320,32 +293,32 @@ def _frozen_requirements_bytes() -> bytes:
 
 
 def build_package(pipeline_script_path: str, output_path: str) -> BuiltPackage:
-    """execution-packaging-options.md, "Packaging": produces the same artifact *shape* dlt's
-    own orphaned `PackageBuilder` does (A3) -- a gzipped tar under a `files/` prefix, a
-    `manifest.yaml` of per-file size + sha3_256, and a content hash over the sorted
-    `(path, hash)` pairs -- built directly here rather than by calling `PackageBuilder`/
-    `ConfigurationFileSelector`, which assume a full dlt *workspace* project (profiles, a
-    `WorkspaceRunContext`) that a bare pipeline-script path (this project's own input model,
-    per the gate, A11) doesn't have. Walks the script's own containing directory.
+    """Produces the same artifact *shape* dlt's own orphaned `PackageBuilder` does -- a
+    gzipped tar under a `files/` prefix, a `manifest.yaml` of per-file size + sha3_256, and
+    a content hash over the sorted `(path, hash)` pairs -- built directly here rather than
+    by calling `PackageBuilder`/`ConfigurationFileSelector`, which assume a full dlt
+    *workspace* project (profiles, a `WorkspaceRunContext`) that a bare pipeline-script
+    path doesn't have. Walks the script's own containing directory.
 
-    `output_path` is written to directly (a plain gzipped tar) -- the caller owns cleanup, and
-    it must resolve outside the script's own directory: this function tars that directory's
-    contents, so an output path inside it would render the tar self-referential (worse: reading
-    it mid-write, while `os.walk` is still discovering files).
+    `output_path` is written to directly (a plain gzipped tar) -- the caller owns cleanup,
+    and it must resolve outside the script's own directory: this function tars that
+    directory's contents, so an output path inside it would render the tar
+    self-referential (worse: reading it mid-write, while `os.walk` is still discovering
+    files).
 
     If the walked directory ships neither `requirements.txt` nor `pyproject.toml`, one is
     synthesized (`_frozen_requirements_bytes`) and added to the tar/manifest under
-    `files/requirements.txt` -- the server-side build-runner (`dlt-package-builder`) needs *some*
-    dependency spec to install against, and a bare single-script customer pipeline (the common
-    case this design targets, per BRIEF §4.1) usually has none of its own.
+    `files/requirements.txt` -- the server-side build-runner (`dlt-package-builder`) needs
+    *some* dependency spec to install against, and a bare single-script customer pipeline
+    usually has none of its own.
 
     The manifest also records `entry_script`: `pipeline_script_path`'s own path relative to
-    `root` (almost always just its basename, since `root` is its immediate parent directory).
-    Task 4's runtime task needs this -- the uploaded tarball's `files/` directory is the
-    customer's whole pipeline directory, and nothing else records which file inside it is the
-    one to actually execute. `dlt-package-builder` (Task 3) carries this field through onto the
-    collector record's own build metadata (`entry_script`, alongside `current_package_hash`)
-    so the runtime task can read it without re-deriving it.
+    `root` (almost always just its basename, since `root` is its immediate parent
+    directory). The runtime task needs this -- the uploaded tarball's `files/` directory is
+    the customer's whole pipeline directory, and nothing else records which file inside it
+    is the one to actually execute. `dlt-package-builder` carries this field through onto
+    the collector record's own build metadata (`entry_script`, alongside
+    `current_package_hash`) so the runtime task can read it without re-deriving it.
     """
     root = Path(pipeline_script_path).resolve().parent
     entry_script = Path(pipeline_script_path).resolve().relative_to(root).as_posix()
@@ -433,19 +406,13 @@ class DeployClient:
         return headers
 
     def register_hosted_pid(self, pipeline_key: str, dataset_name: str) -> str:
-        """identity-and-handoff-options.md §1: same claim key and lookup-or-create mechanism
-        `HttpTransport.register`'s `type=external_dlt` already uses -- real, wired-in backend
-        code, `_create_external_dlt_collector` (`legacy/handlers/collectors.py:1528-1615`,
-        confirmed by first-party read): a conditional put on
-        `PK=DLT_PROCESS#{pipeline_key}|{dataset_name}`. `type=hosted_dlt` is this design's
-        create-time payload for a fresh claim -- a new sibling `match` arm next to
-        `CollectorTypes.EXTERNAL_DLT` in `handle_create_collector`, not yet added server-side.
-        The adopt-in-place transition for a claim that already resolves to an *existing*
-        external collector is that same new arm's job, calling `set_pid_runtime` (confirmed
-        real, `pid_fsm.py:415-422`, but currently only ever called internally from
-        `beamix/app.py`'s FSM helpers -- no route exposes it today). This client only ever
-        calls the one idempotent endpoint and trusts the server to do the right thing for
-        whichever branch the claim resolves to -- exactly like `HttpTransport.register`."""
+        """Uses the same claim key and lookup-or-create mechanism `HttpTransport.register`'s
+        `type=external_dlt` already uses -- a conditional put on
+        `PK=DLT_PROCESS#{pipeline_key}|{dataset_name}`. `type=hosted_dlt` is the create-time
+        payload for a fresh claim; a claim that already resolves to an existing external
+        collector is adopted in place instead. This client only ever calls the one idempotent
+        endpoint and trusts the server to do the right thing for whichever branch the claim
+        resolves to -- exactly like `HttpTransport.register`."""
         response = self.session.post(
             self._url("/collectors"),
             json={"type": "hosted_dlt", "name": pipeline_key, "config": {"dataset_name": dataset_name}},
@@ -455,20 +422,15 @@ class DeployClient:
         return response.json()["id"]
 
     def submit_secrets(self, pid: str, secrets: Dict[str, str]) -> None:
-        """R10 §3: must land on the encrypt-on-write path, never the verbatim-on-create one --
-        confirmed real: `PATCH /collectors/{collectorId}` -> `handle_update_collector` ->
-        `_reclassify_secrets` -> `_apply_update_request`'s `encrypt_secrets`/KMS call
-        (`legacy/handlers/collectors.py:797-874,1120-1155`, first-party read). Not reused
-        directly: `_reclassify_secrets` relocates fields by matching their *name* against a
-        fixed `KNOWN_SECRET_FIELDS` vocabulary (`client_secret`, `refresh_token`, `password`,
-        ... -- `collectors.py:242-260`), which a dlt pipeline's own arbitrary
-        `SECTION__KEY`-shaped secret names won't generally match. Modeled instead as a sibling
-        route, `PATCH /collectors/{pid}/secrets`, taking an explicit `{name: value}` map straight
-        to the same KMS `encrypt()` helper (`matterbeam_shared/secrets.py`) -- same per-customer
-        KMS key, same DynamoDB `secret` field, different (and simpler) reclassification step.
-        Confirmed live server-side (`domains/deploy/repository.py`, `routers/collectors_ext/
-        router.py`) -- values land KMS-encrypted, verified by reading the raw DynamoDB item
-        back."""
+        """Secret values must land on the encrypt-on-write path, never the verbatim-on-create
+        one. The legacy `PATCH /collectors/{collectorId}` reclassify path relocates fields by
+        matching their *name* against a fixed `KNOWN_SECRET_FIELDS` vocabulary
+        (`client_secret`, `refresh_token`, `password`, ...), which a dlt pipeline's own
+        arbitrary `SECTION__KEY`-shaped secret names won't generally match. This uses a
+        sibling route instead, `PATCH /collectors/{pid}/secrets`, taking an explicit
+        `{name: value}` map straight to the same KMS `encrypt()` helper
+        (`matterbeam_shared/secrets.py`) -- same per-customer KMS key, same DynamoDB `secret`
+        field, a simpler reclassification step."""
         if not secrets:
             return
         response = self.session.patch(
@@ -479,25 +441,17 @@ class DeployClient:
         _raise_for_status(response)
 
     def create_upload_url(self, pid: str, filename: str) -> dict:
-        """execution-packaging-options.md, "Packaging" step 4 / B7: a presigned S3 `PutObject`,
-        generalizing B7's real, confirmed precedent -- `POST /collectors/{collectorId}/
-        upload-url` -> `handle_collector_upload_url` (`legacy/handlers/collectors.py:362-418`,
-        first-party read): `{"filename": ...}` in, `{"upload_url": ..., "key": ...}` out
-        (unwrapped, no `{"data": ...}` envelope -- this legacy handler's own convention), a
-        `Content-Type` pinned into the signature, 900s TTL. Not reused at that exact path,
-        though -- confirmed live server-side (`routers/collectors_ext/router.py`,
-        `create_deployment_upload_url`; `../backend` is writable for this half of the
-        project): `collectors_ext`'s router is included *before* the legacy router in
-        `app.py`, so a route at the CSV route's own path would shadow it for every
-        collector, not just dlt ones. Mounted at `/collectors/{pid}/deployment/upload-url`
-        instead -- same request/response shape, different (and non-colliding) path. Bucket
-        is also different now: a dedicated `CustomerUploads` bucket
-        (`matterbeam-<customer>-uploads`) with two prefixes -- `file-uploads/` (14-day
-        expiration, what the CSV route now uses) and `deployments/` (no expiration, since
-        the runtime task restores from this object on every cold invocation and it must
-        persist indefinitely). This client's key lands under `deployments/dlt/{pid}/
-        {filename}` -- the `dlt/` segment leaves room for a future non-dlt deployment type
-        under the same prefix without a key-shape collision."""
+        """A presigned S3 `PutObject`, generalizing the same pattern the legacy CSV
+        upload-url route uses: `{"filename": ...}` in, `{"upload_url": ..., "key": ...}` out,
+        a `Content-Type` pinned into the signature, 900s TTL. Mounted at a different route
+        (`/collectors/{pid}/deployment/upload-url`) and a different bucket than the CSV
+        route, so `collectors_ext`'s router doesn't shadow the legacy one. The dedicated
+        `CustomerUploads` bucket (`matterbeam-<customer>-uploads`) has two prefixes --
+        `file-uploads/` (14-day expiration, used by the CSV route) and `deployments/` (no
+        expiration, since the runtime task restores from this object on every cold
+        invocation). This client's key lands under `deployments/dlt/{pid}/{filename}` -- the
+        `dlt/` segment leaves room for a future non-dlt deployment type under the same
+        prefix without a key-shape collision."""
         response = self.session.post(
             self._url(f"/collectors/{pid}/deployment/upload-url"),
             json={"filename": filename},
@@ -507,7 +461,7 @@ class DeployClient:
         return response.json()
 
     def upload_package(self, upload_url: str, package_path: str) -> None:
-        """The presigned `PutObject` itself bypasses API Gateway/auth entirely (B7) -- no
+        """The presigned `PutObject` itself bypasses API Gateway/auth entirely -- no
         `Authorization` header, the URL's own signature is the auth. `Content-Type` must match
         whatever `create_upload_url` had the server sign the URL for."""
         with open(package_path, "rb") as f:
@@ -515,17 +469,12 @@ class DeployClient:
         _raise_for_status(response)
 
     def trigger_build(self, pid: str) -> bool:
-        """execution-packaging-options.md, "The build process": fires the async
-        build-runner right after `upload_package`'s `PutObject` completes --
-        `POST /collectors/{pid}/deployment/build` (`routers/collectors_ext/router.py`'s
-        `trigger_deployment_build`). Server-side this dispatches through the ordinary
-        pid_fsm RUN path (a singleton dlt-package-builder pid), not a direct Lambda invoke --
-        this client has no opinion on that, it just posts and returns quickly regardless
-        of how long the actual build takes. Returns `False`, not an exception, for a 501
-        specifically -- the dlt-package-builder component not yet deployed/published to this
-        customer account (`domains/deploy/repository.py`'s `_package_builder_lambda_arn`)
-        -- so `deploy()` can still report a successful upload rather than failing the
-        whole command over infrastructure that hasn't caught up yet."""
+        """Fires the async build-runner right after `upload_package`'s `PutObject` completes
+        -- `POST /collectors/{pid}/deployment/build`. This client posts and returns quickly
+        regardless of how long the actual build takes. Returns `False`, not an exception, for
+        a 501 specifically -- the dlt-package-builder component not yet deployed/published to
+        this customer account -- so `deploy()` can still report a successful upload rather
+        than failing the whole command over infrastructure that hasn't caught up yet."""
         response = self.session.post(self._url(f"/collectors/{pid}/deployment/build"), headers=self._headers())
         if response.status_code == 501:
             return False
@@ -549,20 +498,18 @@ def poll_build_status(
     on_update: Optional[Callable[[dict], None]] = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict:
-    """Task 4 item 1: the CLI-side half of "poll for build status" (`execution-packaging-
-    options.md`'s "The build process" step 4 -- poll a status field rather than block on a
-    single HTTP request, since the customer REST API sits behind a hard 30s API Gateway
-    timeout, parent B16). Shared by both `dlt matterbeam deploy` (a short bounded poll right
-    after triggering, for the "uploading... done, building... done" UX `cli-and-upload-
-    options.md` §5 describes) and `dlt matterbeam status <pid>` (a single-shot poll, i.e.
-    `max_attempts=1`, for re-checking a build already in flight).
+    """The CLI-side half of "poll for build status" -- poll a status field rather than
+    block on a single HTTP request, since the customer REST API sits behind a hard 30s API
+    Gateway timeout. Shared by both `dlt matterbeam deploy` (a short bounded poll right
+    after triggering, for the "uploading... done, building... done" UX) and
+    `dlt matterbeam status <pid>` (a single-shot poll, i.e. `max_attempts=1`, for
+    re-checking a build already in flight).
 
-    Stops as soon as `build_status` reaches a terminal value (`ready`/`failed` --
-    `execution-packaging-options.md`'s `[build]` failure-tag taxonomy) or `max_attempts` is
-    exhausted, whichever comes first -- never blocks indefinitely on a build that's stuck
-    (BRIEF §1 step 6's own documented gap: a Lambda timeout mid-build leaves `build_status`
-    stuck at `"building"` until a manual retry, which no amount of client-side polling can
-    detect as anything other than "still building").
+    Stops as soon as `build_status` reaches a terminal value (`ready`/`failed`) or
+    `max_attempts` is exhausted, whichever comes first -- never blocks indefinitely on a
+    build that's stuck (a Lambda timeout mid-build leaves `build_status` stuck at
+    `"building"` until a manual retry, which no amount of client-side polling can detect
+    as anything other than "still building").
     """
     status: dict = {}
     for attempt in range(max_attempts):
@@ -577,21 +524,19 @@ def poll_build_status(
 
 
 def resolve_standalone_credentials() -> tuple[str, Optional[str]]:
-    """Recovers `matterbeam_url`/`api_token` for `dlt matterbeam status <pid>`, which -- unlike
-    `deploy` -- has no pipeline script path to construct a `Pipeline` from and read
-    `.destination_client().config` off of (`gather_deploy_info`). BRIEF's own open item
-    (Task 3's carried-forward note: "its signature only takes a bare pid, no credentials --
-    a CLI redesign question left open").
+    """Recovers `matterbeam_url`/`api_token` for `dlt matterbeam status <pid>`, which --
+    unlike `deploy` -- has no pipeline script path to construct a `Pipeline` from and read
+    `.destination_client().config` off of (`gather_deploy_info`). The `status` command's
+    signature only takes a bare pid, no credentials.
 
-    Resolved this way instead: reuses dlt's own global config/secrets accessors (`dlt.config`/
-    `dlt.secrets`), the same provider chain (env vars, `.dlt/secrets.toml`/`.dlt/config.toml`
-    relative to the current working directory) `recover_secrets` already trusts for the exact
-    same section (`destination.matterbeam`) -- not a new mechanism, and not a change to the
-    command's own `<pid>` shape (`cli-and-upload-options.md` §1 already commits to that
-    literal shape). Keeps the CLI's constraint intact (BRIEF §4.1, vanilla dlt authoring): a
-    customer who has already configured `destination.matterbeam.matterbeam_url`/`api_token` for
-    their pipeline (env vars or `.dlt/secrets.toml`) gets `status` working for free, from the
-    same directory they'd run `deploy` from -- no second credential to set up.
+    Resolved this way instead: reuses dlt's own global config/secrets accessors
+    (`dlt.config`/`dlt.secrets`), the same provider chain (env vars,
+    `.dlt/secrets.toml`/`.dlt/config.toml` relative to the current working directory)
+    `recover_secrets` already trusts for the exact same section (`destination.matterbeam`).
+    A customer who has already configured
+    `destination.matterbeam.matterbeam_url`/`api_token` for their pipeline (env vars or
+    `.dlt/secrets.toml`) gets `status` working for free, from the same directory they'd run
+    `deploy` from -- no second credential to set up.
     """
     import dlt
     from dlt.common.configuration.exceptions import ConfigFieldMissingException
@@ -623,16 +568,16 @@ def deploy(
     poll_max_attempts: int = _DEPLOY_POLL_MAX_ATTEMPTS,
     poll_interval_seconds: float = _DEPLOY_POLL_INTERVAL_SECONDS,
 ) -> DeployResult:
-    """Orchestrates BRIEF §1 steps 3-6 for `dlt matterbeam deploy`: pid handoff, secret
-    submission, package build + presigned upload, then triggers and polls the server-side
-    build (Task 4 item 1) for a short, bounded window -- `cli-and-upload-options.md` §5's
-    "uploading... done, building... done" UX. Step 2 (the gate) is assumed already run by
-    the caller (`cli.py`) -- this re-validates via `gather_deploy_info`/`open_collector_pipeline`
-    regardless, so this function is safe to call standalone.
+    """Orchestrates `dlt matterbeam deploy`: pid handoff, secret submission, package build
+    + presigned upload, then triggers and polls the server-side build for a short, bounded
+    window, for the "uploading... done, building... done" UX. The gate is assumed already
+    run by the caller (`cli.py`) -- this re-validates via
+    `gather_deploy_info`/`open_collector_pipeline` regardless, so this function is safe to
+    call standalone.
 
     `poll_max_attempts`/`poll_interval_seconds` are keyword-only so a caller (a test, or a
     future non-CLI caller) can shrink the wait without touching `cli.py`'s own module-level
-    defaults; `poll_max_attempts=0` skips polling entirely (matches the pre-Task-4 behavior)."""
+    defaults; `poll_max_attempts=0` skips polling entirely."""
     info = gather_deploy_info(pipeline_script_path)
     if not info.matterbeam_url:
         raise DeployError(

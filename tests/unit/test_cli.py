@@ -1,5 +1,4 @@
-"""`dlt matterbeam` CLI registration and commands (BRIEF §1 step 1; Task 2's pid/secrets/upload
-wiring in `_deploy`)."""
+"""`dlt matterbeam` CLI registration and commands: pid/secrets/upload wiring in `_deploy`."""
 
 import argparse
 import runpy
@@ -76,10 +75,10 @@ def test_execute_deploy_accepts_a_collector(tmp_path, capsys):
 
 
 def test_execute_deploy_runs_pid_secrets_and_upload(tmp_path, capsys, fake_server, monkeypatch):
-    """Task 2: end to end through the CLI -- pid handoff, secret submission, package upload.
-    Task 4: also polls build status once (the fake server's `trigger_build` leaves it at
-    "building" forever, so a real poll loop would never resolve -- shrink both the attempt
-    count and interval so this test doesn't pay real wall-clock time for that)."""
+    """End to end through the CLI -- pid handoff, secret submission, package upload, and one
+    build-status poll (the fake server's `trigger_build` leaves it at "building" forever, so a
+    real poll loop would never resolve -- shrink both the attempt count and interval so this
+    test doesn't pay real wall-clock time for that)."""
     import dlt_matterbeam.cli as cli_module
 
     monkeypatch.setattr(cli_module, "_DEPLOY_POLL_MAX_ATTEMPTS", 1)
@@ -123,7 +122,7 @@ def test_execute_deploy_rejects_non_matterbeam(tmp_path):
 
 
 def test_execute_status_polls_build_status_using_env_credentials(capsys, fake_server, monkeypatch):
-    """Task 4 item 1: `status <pid>` has no pipeline script to recover credentials from, so it
+    """`status <pid>` has no pipeline script to recover credentials from, so it
     resolves them the same way any other dlt config value would -- env vars, here standing in
     for a customer's `.dlt/secrets.toml` (`resolve_standalone_credentials`)."""
     base_url, state = fake_server

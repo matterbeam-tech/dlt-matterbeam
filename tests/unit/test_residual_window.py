@@ -1,17 +1,16 @@
-"""D10's residual stale-resurrection window, reproduced deterministically and measured
-rather than guessed at (design doc Phase 3 requirement).
+"""The residual stale-resurrection window, reproduced deterministically and measured
+rather than guessed at.
 
-The exact sequence from D10's own text: job J1 (key K, version 1) writes one chunk, then
-fails before sending a second chunk that also touches key K. Job J2 (key K, version 2)
-runs to completion, superseding K. J1 retries: its first chunk is now a harmless ledger
-replay, but the second chunk -- never sent before the crash -- is genuinely new data,
-lands *after* J2's write, and wins the last-value-wins fold even though it carries the
-older value. Ordering (the entry lock) does not prevent this: it is order across time,
-not concurrency, and D10 says so explicitly.
+The sequence: job J1 (key K, version 1) writes one chunk, then fails before sending a
+second chunk that also touches key K. Job J2 (key K, version 2) runs to completion,
+superseding K. J1 retries: its first chunk is now a harmless ledger replay, but the
+second chunk -- never sent before the crash -- is genuinely new data, lands *after* J2's
+write, and wins the last-value-wins fold even though it carries the older value. Ordering
+(the entry lock) does not prevent this: it is order across time, not concurrency.
 
-This is the case the design deliberately didn't build around because it expected it to
-be rare. This test proves the server-side instrumentation added in Phase 3 catches it and
-also demonstrates the underlying data hazard it's counting.
+This case is deliberately not built around, since it's expected to be rare. This test
+proves the server-side instrumentation catches it and also demonstrates the underlying
+data hazard it's counting.
 """
 
 import _direct_http as http
@@ -44,5 +43,5 @@ def test_residual_window_is_detected_and_the_underlying_hazard_reproduces(fake_s
     assert not dropped
     folded = fold.fold(facts, key_fields=["id"])
     # The documented residual: the *older* value wins, because it landed later in
-    # physical arrival order. This is the bug D10 describes, not a bug in this test.
+    # physical arrival order. This is the documented hazard, not a bug in this test.
     assert folded["42"]["val"] == "v1_stale"

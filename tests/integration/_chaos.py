@@ -1,6 +1,6 @@
-"""Helpers for Phase 3's chaos tests against a real dev account: talking to the ingest
-route directly (precise control over load_id/job_id/seq/chaos-crash-point, faster than
-driving a whole pipeline for scenarios that don't need one), and reading back
+"""Helpers for chaos tests against a real dev account: talking to the ingest route
+directly (precise control over load_id/job_id/seq/chaos-crash-point, faster than driving
+a whole pipeline for scenarios that don't need one), and reading back
 `process_state.json` -- a plain JSON blob, not internal-format-specific -- to check
 server-side counters.
 
@@ -105,7 +105,7 @@ _REST_API_SRC = os.path.join(
 
 
 def force_release_lock(pid: str) -> None:
-    """The recovery mechanism this phase actually found working, as opposed to
+    """The recovery mechanism that actually works, as opposed to
     `POST /v2/pids/{pid}/kick` -- see `test_kick_pid_is_not_a_safe_recovery_path`. Calls
     `update_pid_for_complete` directly (the exact primitive `release_entry` uses) with no
     `PidAction.RUN` event, which is what makes `kick_pid` unsafe for an `EXTERNAL_DLT` pid:
@@ -114,9 +114,8 @@ def force_release_lock(pid: str) -> None:
     re-claims the entry lock and never releases it.
 
     Not something a real client can do (it needs the server's own AWS credentials to talk
-    to DynamoDB directly) -- a stand-in for the safe admin action this project's Phase 3
-    testing shows is still missing, used here only so downstream assertions can be tested
-    at all.
+    to DynamoDB directly) -- a stand-in for the safe admin action that testing shows is
+    still missing, used here only so downstream assertions can be tested at all.
     """
     import subprocess
 
@@ -155,7 +154,7 @@ def _aws_env() -> dict:
     """Reading the coldlog bucket needs the *assumed-role* profile (`dev`), not the base
     profile the server process uses to assume it -- always overridden, not merely
     defaulted, since the ambient `AWS_PROFILE` in this test's own shell is usually the
-    base one (`default`, per the design doc's environment notes)."""
+    base one (`default`)."""
     env = dict(os.environ)
     env["AWS_PROFILE"] = os.environ.get("MATTERBEAM_AWS_PROFILE", "dev")
     return env
@@ -164,8 +163,8 @@ def _aws_env() -> dict:
 def process_state(bucket: str, pid: str) -> dict:
     """Read `process_state.json` straight from S3 -- there is no route that returns the
     whole thing (`GET /collectors/{pid}/state` deliberately only returns the dlt-state
-    subset, D5/C6), and the residual-window counter (Phase 3) lives in the part that
-    route doesn't expose."""
+    subset), and the residual-window counter lives in the part that route doesn't
+    expose."""
     import subprocess
     import tempfile
 

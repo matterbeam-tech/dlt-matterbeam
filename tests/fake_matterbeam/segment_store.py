@@ -11,11 +11,11 @@ What the fake server (`server.py`) and the fold helper (`fold.py`) actually need
 storage mechanism, and all this module provides:
 
   * one append-only "segment" file per commit, under a per-recordtype directory, so
-    `fold.scan` can list segments in write order (B7's ordering argument) and detect
-    inversions the same way a real reader's monotonic cursor would
+    `fold.scan` can list segments in write order and detect inversions the same way a
+    real reader's monotonic cursor would
   * a record id that sorts the same way lexicographically as it does numerically, built
     from (ms_since_epoch, sequence_number, writer_id, noise) -- enough structure to
-    exercise the C3 high-water clamp and per-request writer_id allocation tests, nothing
+    exercise the high-water clamp and per-request writer_id allocation tests, nothing
     more
   * plain newline-delimited JSON, uncompressed -- readable with a text editor if a test
     ever needs to be debugged by hand

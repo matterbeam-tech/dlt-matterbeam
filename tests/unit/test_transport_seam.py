@@ -1,10 +1,9 @@
-"""D6's deployment seam: the internal-only optional package (BRIEF §3, out of scope here)
-plugs in a `DirectColdlogTransport` under the `dlt_matterbeam.transports` entry-point
-group. This package never imports it -- true in Phase 1 with one builtin transport, and
-still true in Phase 2 with two (`FileTransport`, `HttpTransport`). These tests are what
-stop that seam from rotting -- they fail loudly if `dlt_matterbeam` ever grows a direct
-import of an internal package, or if the resolver stops degrading cleanly when no other
-transport is registered.
+"""The deployment seam: an internal-only optional package plugs in a
+`DirectColdlogTransport` under the `dlt_matterbeam.transports` entry-point group. This
+package never imports it, with both builtin transports (`FileTransport`, `HttpTransport`)
+present. These tests are what stop that seam from rotting -- they fail loudly if
+`dlt_matterbeam` ever grows a direct import of an internal package, or if the resolver
+stops degrading cleanly when no other transport is registered.
 """
 
 from importlib.metadata import entry_points
@@ -34,7 +33,7 @@ def test_file_transport_resolves_with_no_other_package_present(tmp_path):
 
 
 def test_http_transport_resolves_with_no_other_package_present():
-    """Phase 2's second builtin transport -- still resolved without the entry-point
+    """The second builtin transport -- still resolved without the entry-point
     group, same as `"file"`."""
 
     class Cfg:
@@ -76,8 +75,7 @@ def test_full_pipeline_run_never_imports_a_matterbeam_internal_package(pipeline_
 
 
 def test_full_pipeline_run_over_http_never_imports_a_matterbeam_internal_package(http_pipeline_factory):
-    """Same proof, `transport="http"` -- the seam holds for both builtin transports, not
-    just the one Phase 1 shipped."""
+    """Same proof, `transport="http"` -- the seam holds for both builtin transports."""
     import sys
 
     import dlt

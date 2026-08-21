@@ -1,10 +1,9 @@
-"""Phase 2: `HttpTransport` against the evolved fake server (tests/fake_matterbeam).
+"""`HttpTransport` against the fake server (tests/fake_matterbeam).
 
-Covers registration idempotency, the two distinguishable 409s (§8.2 D4 fix), the
-`WithStateSync` round trip including the two-laptop clobber guard, the D6 pid-resolution
-fix (no `PipelineContext`, fallback path when state-sync never fires), and that merge
-semantics still fold correctly end to end with the server allocating record_ids and
-stamping `mb.metadata` (C2).
+Covers registration idempotency, the two distinguishable 409s, the `WithStateSync` round
+trip including the two-laptop clobber guard, pid resolution (no `PipelineContext`,
+fallback path when state-sync never fires), and that merge semantics still fold correctly
+end to end with the server allocating record_ids and stamping `mb.metadata`.
 """
 
 import dlt
@@ -43,8 +42,8 @@ def test_merge_with_hard_delete_folds_correctly_over_http(http_pipeline_factory)
     pipeline.run(customers_run1())
     pipeline.run(customers_run2())
 
-    # recordtype_id is (pid, table) now, not (dataset_name, table) -- a pid is already
-    # 1:1-bound to one dataset_name at registration (design doc Phase 2 report).
+    # recordtype_id is (pid, table), not (dataset_name, table) -- a pid is already
+    # 1:1-bound to one dataset_name at registration.
     pid = state.registry[f"{pipeline.pipeline_name}|shop"]
     recordtype_id = f"{pid}.customers"
     facts, dropped = fold.scan(state.coldlog_root, recordtype_id)
@@ -57,16 +56,16 @@ def test_merge_with_hard_delete_folds_correctly_over_http(http_pipeline_factory)
 
     tombstones = [r for _, r in facts if r["mb.metadata"].get("is_tombstone")]
     assert len(tombstones) == 1
-    assert set(fold.body(tombstones[0])) == {"id"}  # stripped to key fields server-side (C2)
+    assert set(fold.body(tombstones[0])) == {"id"}  # stripped to key fields server-side
 
     for _, record in facts:
         assert record["mb.metadata"]["record_type_id"] == recordtype_id  # server allocated, not client
-        assert record["mb.metadata"].get("source_record_id")  # A17 §3a, promoted by the client, stamped by the server
+        assert record["mb.metadata"].get("source_record_id")  # promoted by the client, stamped by the server
 
 
 def test_registration_is_lookup_or_create_by_pipeline_name(http_pipeline_factory):
-    """D6: registering twice for the same pipeline+dataset returns the same pid; the
-    pid is resolved without ever touching `Container()[PipelineContext]` (§8.2 fix)."""
+    """Registering twice for the same pipeline+dataset returns the same pid; the
+    pid is resolved without ever touching `Container()[PipelineContext]`."""
     make_pipeline, state = http_pipeline_factory
     pipeline_a = make_pipeline(dataset_name="ds")
 
@@ -83,15 +82,16 @@ def test_registration_is_lookup_or_create_by_pipeline_name(http_pipeline_factory
 
 
 def test_pid_resolves_via_fallback_when_state_sync_is_disabled(http_pipeline_factory):
-    """The D6 fallback path: no `get_stored_state` call ever fires with
+    """The fallback path: no `get_stored_state` call ever fires with
     `restore_from_destination=False`, so the pid must resolve from the first load job
     instead. It still resolves to the *true* pipeline identity (via the active
     `Container()[PipelineContext]`, read at load-job time, not in `__enter__`), agreeing
     with what `get_stored_state` would have used -- not a different, dataset/schema-name
     key. A dataset-name-only fallback was tried and empirically produces a second, wrong
-    pid whenever a load-job instance resolves independently of the state-sync instance
-    (which is most load jobs, per the design doc's own "16 calls for 12 jobs" finding) --
-    exactly the identity split D6 exists to prevent."""
+    pid whenever a load-job instance resolves independently of the state-sync instance,
+    which is most load jobs: the loader opens and closes a client per job, so state-sync
+    and each table's load typically run on different instances even within one `run()` --
+    exactly the identity split this fallback exists to prevent."""
     make_pipeline, state = http_pipeline_factory
     pipeline = make_pipeline(dataset_name="ds", restore_from_destination=False)
 
@@ -113,8 +113,7 @@ def test_pid_falls_back_to_dataset_schema_key_with_no_active_pipeline(http_pipel
     """The last-resort path: with no active `PipelineContext` at all (nothing in the
     normal test setup un-sets this -- merely constructing a pipeline activates it -- so
     this is forced directly), there is no pipeline identity to read from anywhere, and
-    resolution must degrade to the dataset/schema-name key rather than raise (unlike the
-    spike's `PipelineContext` use, which did)."""
+    resolution must degrade to the dataset/schema-name key rather than raise."""
     make_pipeline, state = http_pipeline_factory
     pipeline = make_pipeline(dataset_name="ds")
     client = pipeline.destination_client()
@@ -159,7 +158,7 @@ def test_complete_load_resolves_pid_on_a_fresh_client_instance(http_pipeline_fac
 
 
 def test_409_lock_contention_is_retried_and_load_closed_is_terminal(http_pipeline_factory):
-    """§8.2 D4 fix: the two 409 reasons must not be handled the same way. Drive both
+    """The two 409 reasons must not be handled the same way. Drive both
     directly against the fake server's state to assert the distinction the client relies
     on (retryable vs. terminal), independent of how likely dlt is to trigger either."""
     from dlt_matterbeam.transport import HttpTransport
@@ -196,9 +195,9 @@ def test_409_lock_contention_is_retried_and_load_closed_is_terminal(http_pipelin
     finally:
         state.pids[pid]["invoke_semaphore"] = 1
 
-    # A closed load is terminal on the first attempt, not retried. Keyed by (pid, load_id)
-    # now, not load_id alone (Phase 3: a client-generated load_id has no server-side
-    # uniqueness guarantee across different pids).
+    # A closed load is terminal on the first attempt, not retried. Keyed by (pid, load_id),
+    # not load_id alone -- a client-generated load_id has no server-side uniqueness
+    # guarantee across different pids.
     state.closed_loads.add((pid, "load-y"))
     with __import__("pytest").raises(Exception) as exc_info:
         http.send_chunk(
@@ -217,7 +216,7 @@ def test_409_lock_contention_is_retried_and_load_closed_is_terminal(http_pipelin
 
 
 def test_state_round_trips_over_http_and_the_stale_write_is_rejected(http_pipeline_factory):
-    """D5: `get_stored_state` before extract, `put_dlt_state` after load, and the
+    """`get_stored_state` before extract, `put_dlt_state` after load, and the
     `StateInfo.version` guard rejecting an older write than what's stored."""
     make_pipeline, state = http_pipeline_factory
     pipeline = make_pipeline(dataset_name="ds")
@@ -234,10 +233,9 @@ def test_state_round_trips_over_http_and_the_stale_write_is_rejected(http_pipeli
     assert stored is not None
     assert stored.pipeline_name == pipeline.pipeline_name
 
-    # A second, older write loses the race and is logged, not raised (§8.2 report: a
-    # hard-reject here would fail an otherwise-good load over a bookkeeping conflict --
-    # exactly what D5 warns against, and what an earlier version of this fix got wrong
-    # until a concurrency test caught it).
+    # A second, older write loses the race and is logged, not raised: a hard-reject here
+    # would fail an otherwise-good load over a bookkeeping conflict -- an earlier version
+    # of this fix got that wrong until a concurrency test caught it.
     client.transport.put_dlt_state(
         pid,
         {

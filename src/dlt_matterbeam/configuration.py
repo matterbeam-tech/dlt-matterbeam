@@ -8,8 +8,8 @@ from dlt.common.typing import TSecretValue
 
 # Set only for a process beamix itself manages (Lambda or ECS) -- never present on a
 # customer's own machine. The internal-log transport's own `register()` already keys off
-# this exact variable for identity (R12's spike); reusing it here as the "are we running
-# inside Matterbeam's own runtime" signal is the same coupling, not a new one.
+# this exact variable for identity; reusing it here as the "are we running inside
+# Matterbeam's own runtime" signal is the same coupling, not a new one.
 _HOSTED_RUNTIME_ENV_VAR = "BEAMIX_PID"
 
 

@@ -1,11 +1,10 @@
-"""LoadJob classes for the `matterbeam` destination (D2, D11).
+"""LoadJob classes for the `matterbeam` destination.
 
-`batch_size=0` (declared via caps as the sink historically defaulted, D11) hands
-`create_load_job` a file path rather than rows, so all per-row work -- PUA stripping,
-chunking -- happens here rather than in dlt's loop. Record *encoding* (D1's minimal wire
-envelope vs. Phase 1's self-contained local fact) is transport-specific and lives in
-`transport.py` now, not here -- this is transport-agnostic on purpose, unchanged since
-Phase 1 except for what it hands off.
+`batch_size=0` hands `create_load_job` a file path rather than rows, so all per-row
+work -- PUA stripping, chunking -- happens here rather than in dlt's loop. Record
+*encoding* (the minimal wire envelope vs. a self-contained local fact) is
+transport-specific and lives in `transport.py`, not here -- this stays
+transport-agnostic on purpose.
 """
 
 from __future__ import annotations
@@ -55,9 +54,9 @@ class MatterbeamLoadJob(RunnableLoadJob):
         for row in rows:
             pending.append(row)
             # An estimate of the raw row's own size, not the final wire/segment size --
-            # cheap, and close enough for a soft chunking target (D11). Precise byte-size
-            # chunking against the real 4 MB/6 MB limits is unmeasured (design doc §7 open
-            # question #6) and left for when a real payload shape is measured.
+            # cheap, and close enough for a soft chunking target. Precise byte-size
+            # chunking against the real 4 MB/6 MB limits is unmeasured and left for
+            # when a real payload shape is measured.
             pending_bytes += len(json.dumps(row))
             if len(pending) >= chunk_records or pending_bytes >= chunk_bytes:
                 client.send_chunk(
@@ -90,10 +89,10 @@ class MatterbeamLoadJob(RunnableLoadJob):
 
 
 class MatterbeamStateJob(RunnableLoadJob):
-    """`_dlt_pipeline_state` never becomes a fact in the log (H1/D5) -- diverted to
-    `client.put_dlt_state` instead. Only meaningful when the transport has a server and a
-    pid (Phase 2's `HttpTransport`); `FileTransport` degrades this to a no-op exactly like
-    not implementing `WithStateSync` at all (A15)."""
+    """`_dlt_pipeline_state` never becomes a fact in the log -- diverted to
+    `client.put_dlt_state` instead. Only meaningful when the transport has a server and
+    a pid (`HttpTransport`); `FileTransport` degrades this to a no-op exactly like not
+    implementing `WithStateSync` at all."""
 
     def run(self) -> None:
         client: "MatterbeamJobClient" = self._job_client

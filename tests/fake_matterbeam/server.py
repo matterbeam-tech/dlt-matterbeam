@@ -1,47 +1,41 @@
-"""A stand-in for the server side of Phase 2: the bulk ingest route, the HTTP-driven FSM
-entry path (C11), registration (C10/D6), and the dlt-state route (C6/D5).
+"""A stand-in for the server side of the ingest API: the bulk ingest route, the
+HTTP-driven FSM entry path, registration, and the dlt-state route.
 
-Evolved from `spikes/dlt-matterbeam/fake_matterbeam/server.py` (task 04's de-risking
-spike) rather than written from scratch, with the §8.2 corrections folded in directly:
-ledger written *after* the commit (not "the natural order" hedge -- it's the chosen,
-correct order), two distinguishable 409 reasons instead of one generic contention error,
-and no fold-key declaration route (P3 is out of scope for this project, dropped rather
-than stood in for). Segment storage is `segment_store.py`, an invented, plain-JSON
-format local to this test double -- deliberately not a reimplementation of the real
-backend's internal coldlog wire format; nothing here needs byte parity with anything
-real, only the ordering/dedup/clamp *behaviour* the design's claims rest on.
+Segment storage is `segment_store.py`, an invented, plain-JSON format local to this test
+double -- deliberately not a reimplementation of the real backend's internal coldlog wire
+format; nothing here needs byte parity with anything real, only the ordering/dedup/clamp
+*behaviour* it's meant to model.
 
-It is NOT a Matterbeam simulator. It reimplements only the parts the design's claims rest
-on, from the findings log, with no Matterbeam imports:
+It is NOT a Matterbeam simulator. It reimplements only the parts that behaviour depends
+on, with no Matterbeam imports, and deliberately omits a fold-key declaration route (out
+of scope for this project, dropped rather than stood in for):
 
   * per-pid FSM entry lock as a read-then-CAS pair on (update_version, invoke_semaphore),
     with two distinguishable 409 reasons: "lock_contention" (retryable) and "load_closed"
-    / "paused" (terminal) -- B15 §3, C11, §8.2's D4 fix
-  * one segment per request, server-allocated record_ids, one commit-equivalent write --
-    B3, B10b, D11
-  * server-side `mb.metadata` stamping incl. is_tombstone and the two D9/C7 fields
+    / "paused" (terminal)
+  * one segment per request, server-allocated record_ids, one commit-equivalent write
+  * server-side `mb.metadata` stamping incl. is_tombstone and source_record_id/source_load_id
   * per-request writer_id allocation and a high-water clamp on begin_timestamp kept in
-    the pid's process_state -- D1 layer 3, Phase 3's C3
+    the pid's process_state
   * (load_id, job_id, seq) idempotency ledger, written strictly after the commit, plus
     the record-level `_dlt_id` backstop that must run on *every* chunk (not only once a
-    ledger entry has expired) -- D10, corrected by the spike's own §8.2 finding
-  * `complete_load` closes a load; further chunks bearing its load_id are rejected --
-    D10 layer 3, Phase 3's C4
-  * process_state as the only durable store: dlt state and cursors -- D5
-  * instrumentation for D10's residual stale-resurrection window: a retried job landing
-    after a later job already superseded the same table in the same load -- Phase 3
+    ledger entry has expired)
+  * `complete_load` closes a load; further chunks bearing its load_id are rejected
+  * process_state as the only durable store: dlt state and cursors
+  * instrumentation for the residual stale-resurrection window: a retried job landing
+    after a later job already superseded the same table in the same load
 
 Response shapes mirror the real backend's `{"data": {...}}` / `{"error": {"context": ...}}`
 convention exactly, so `HttpTransport` is exercised against the same envelope it will see
 in production, not a simplified stand-in shape.
 
-Knobs (env), so tests can run the design's configuration and the one it replaced:
+Knobs (env), so tests can exercise the current configuration and the one it replaced:
   MB_LOCK=on|off      entry lock. off == today's http_collector: one shared writer
-                      identity for all ingress, nothing to serialise on (B17 §7)
+                      identity for all ingress, nothing to serialise on
   MB_CLAMP=on|off     high-water clamp on begin_timestamp
-  MB_DEDUP=on|off     record-level `_dlt_id` backstop (Phase 3, §8.2) -- off reproduces
-                      the pre-Phase-3 bug for tests that want to show it
-  MB_JITTER_MS=n      sleep between record_id allocation and the commit, so the B7
+  MB_DEDUP=on|off     record-level `_dlt_id` backstop -- off reproduces the bug this
+                      backstop exists to fix, for tests that want to demonstrate it
+  MB_JITTER_MS=n      sleep between record_id allocation and the commit, so the ordering
                       race is deterministic instead of probabilistic
 """
 
@@ -72,7 +66,7 @@ _JOB_ORDER_WINDOW = 16
 
 class Contention(Exception):
     """Lock contention -- retryable. Distinguished from a closed load / paused pid, both
-    of which are terminal (§8.2's D4 fix)."""
+    of which are terminal."""
 
 
 class Terminal(Exception):
@@ -82,7 +76,7 @@ class Terminal(Exception):
 
 class _ChaosCrash(Exception):
     """Test-only: a test asked `FakeMatterbeamState.ingest` to blow up at a named
-    injection point (see `_chaos_crash`), to exercise D10's write-ordering guarantee
+    injection point (see `_chaos_crash`), to exercise the write-ordering guarantee
     directly rather than trying to race a real crash."""
 
     def __init__(self, point: str):
@@ -114,9 +108,8 @@ class FakeMatterbeamState:
             "residual_stale_resurrection": 0,
         }
         self.visibility: dict[str, list[str]] = {}
-        # Settable by a test after construction, matching the spike's MB_JITTER_MS: makes
-        # the entry lock's contention window wide enough to hit deterministically instead
-        # of racing real request latency.
+        # Settable by a test after construction: makes the entry lock's contention window
+        # wide enough to hit deterministically instead of racing real request latency.
         self.ingest_jitter_ms = 0
 
     def ps(self, pid: str) -> dict:
@@ -156,13 +149,12 @@ class FakeMatterbeamState:
 
     def register(self, pipeline_key: str, dataset_name: str, collector_type: str = "external_dlt") -> tuple[str, bool]:
         """Mirrors `_create_external_dlt_collector`'s conditional-put lookup-or-create
-        (`findings-matterbeam-runtime.md` B9, confirmed real: `legacy/handlers/
-        collectors.py:1528-1615`) for `type=external_dlt`, plus this project's own
-        `type=hosted_dlt` addition (identity-and-handoff-options.md §1): a fresh claim gets a
-        `runtime`/`execution` payload of its own; a claim that already resolves to an existing
-        *external* collector is transitioned in place (`set_pid_runtime`, real but currently
-        internal-only, `pid_fsm.py:415-422`) rather than duplicated -- R09 §1.3's adopt-in-place
-        design."""
+        (confirmed real: `legacy/handlers/collectors.py:1528-1615`) for `type=external_dlt`,
+        plus this project's own `type=hosted_dlt` addition: a fresh claim gets a
+        `runtime`/`execution` payload of its own; a claim that already resolves to an
+        existing *external* collector is transitioned in place (`set_pid_runtime`, real
+        but currently internal-only, `pid_fsm.py:415-422`) rather than duplicated -- an
+        adopt-in-place design."""
         key = f"{pipeline_key}|{dataset_name}"
         with self.mu:
             pid = self.registry.get(key)
@@ -196,7 +188,7 @@ class FakeMatterbeamState:
     # ------------------------------------------------------------------------------- secrets
 
     def submit_secrets(self, pid: str, secrets: dict[str, str]) -> None:
-        """R10 §3: lands on the encrypt-on-write path, never verbatim -- fake KMS is just a
+        """Lands on the encrypt-on-write path, never verbatim -- fake KMS is just a
         tagged marker (`encrypted:<value>`), enough for a test to assert nothing plaintext ever
         sits in `self.pids[pid]["secret"]` under the submitted value alone."""
         with self.mu:
@@ -278,7 +270,7 @@ class FakeMatterbeamState:
         lines: list[bytes],
         chaos_crash_at: "str | None" = None,
     ):
-        # C4: an already-recorded chunk is acknowledged and discarded without appending,
+        # An already-recorded chunk is acknowledged and discarded without appending,
         # regardless of the load's closed state -- a harmless replay, not new data
         # arriving late. Checked before the entry lock, same as the real backend: a
         # replay doesn't need to contend for it.
@@ -299,27 +291,26 @@ class FakeMatterbeamState:
             if self.ingest_jitter_ms:
                 time.sleep(self.ingest_jitter_ms / 1000.0)
 
-            # D10 layer 3: genuinely new data arriving after the load has been closed is
-            # rejected, not silently accepted.
+            # Genuinely new data arriving after the load has been closed is rejected, not
+            # silently accepted.
             if (pid, load_id) in self.closed_loads:
                 raise Terminal("load_closed")
 
-            # No dataset_name here (design doc Phase 2 report): a pid is already 1:1-bound
-            # to one dlt dataset_name at registration, so (pid, table) alone identifies the
-            # recordtype -- matching the real backend's `sys:dlt,pid:{pid},table:{table}`.
+            # No dataset_name here: a pid is already 1:1-bound to one dlt dataset_name at
+            # registration, so (pid, table) alone identifies the recordtype -- matching
+            # the real backend's `sys:dlt,pid:{pid},table:{table}`.
             recordtype_id = f"{pid}.{table}"
             state = self.ps(pid)
             rt_state = state["recordtypes"].setdefault(recordtype_id, {})
 
-            # C3: per-request writer_id allocation.
+            # Per-request writer_id allocation.
             with self.mu:
                 writer_id = (self.pids[pid].get("writer_seq", 0) + 1) % 65536
                 self.pids[pid]["writer_seq"] = writer_id
 
-            # D10 residual stale-resurrection window, instrumented (Phase 3): a job's
-            # chunk arriving after a *different* job already touched this table in this
-            # load, and now this job is back -- the exact pattern a retried, superseded
-            # job produces.
+            # Residual stale-resurrection window, instrumented: a job's chunk arriving
+            # after a *different* job already touched this table in this load, and now
+            # this job is back -- the exact pattern a retried, superseded job produces.
             self._track_job_arrival(rt_state, job_id, pid, table, load_id)
 
             parsed = []
@@ -327,8 +318,8 @@ class FakeMatterbeamState:
                 env = json.loads(ln)
                 parsed.append((env.get("i"), dict(env["v"]), bool(env.get("t"))))
 
-            # C4, corrected by §8.2: the record-level `_dlt_id` backstop runs on *every*
-            # chunk, not only once a ledger entry has expired -- this is what catches the
+            # The record-level `_dlt_id` backstop runs on *every* chunk, not only once a
+            # ledger entry has expired -- this is what catches the
             # crash-after-commit-before-ledger-write window the chunk ledger alone can't.
             seen = self.dlt_ids_seen.setdefault((pid, load_id), set())
             records = []
@@ -349,9 +340,10 @@ class FakeMatterbeamState:
                 if dlt_id:
                     written_dlt_ids.append(dlt_id)
 
-            # begin_timestamp at batch start (B2) -- what makes B7 reachable at all.
+            # begin_timestamp stamped at batch start -- what makes the ordering-inversion
+            # race reachable at all.
             begin_ms = segment_store.now_ms()
-            if CLAMP_ON:  # D1 layer 3
+            if CLAMP_ON:
                 begin_ms = max(begin_ms, rt_state.get("high_water_ms", 0) + 1)
 
             if JITTER_MS:
@@ -367,14 +359,14 @@ class FakeMatterbeamState:
                     vis = self.visibility.setdefault(recordtype_id, [])
                     if vis and str(last_id) < max(vis):
                         # this segment sorts below an already-visible one: any reader
-                        # whose cursor had advanced will never list it (B7)
+                        # whose cursor had advanced will never list it
                         self.counters["inversions"] += 1
                     vis.append(str(last_id))
 
             self._chaos_crash(chaos_crash_at, "after_commit_before_mark")
 
             # The mark and the ledger write both happen only now, after the commit above
-            # has already succeeded (D10, §8.2) -- never before.
+            # has already succeeded -- never before.
             with self.mu:
                 seen.update(written_dlt_ids)
 
@@ -391,8 +383,8 @@ class FakeMatterbeamState:
                 "last_record_id": str(last_id) if last_id is not None else None,
                 "duplicate": False,
             }
-            # D10, §8.2 corrected: the ledger write follows the commit, unconditionally --
-            # never the other order, which trades a duplicate for silent loss.
+            # The ledger write follows the commit, unconditionally -- never the other
+            # order, which trades a duplicate for silent loss.
             with self.mu:
                 self.ledger.add(lkey)
                 self.ledger_results[lkey] = result
@@ -425,7 +417,7 @@ class FakeMatterbeamState:
         if requested_point == point:
             raise _ChaosCrash(point)
 
-    # -------------------------------------------------------------------------- state (D5)
+    # -------------------------------------------------------------------------- state
 
     def put_dlt_state(self, pid: str, doc: dict) -> None:
         version = self.claim(pid)
@@ -522,10 +514,10 @@ class Handler(BaseHTTPRequestHandler):
                 )
 
             # POST /collectors/{pid}/deployment/upload-url -- generalizes the real, confirmed
-            # handle_collector_upload_url (B7) for a deployment tarball instead of a CSV. A
-            # distinct path from the legacy CSV route (confirmed live server-side, R09/EPO
-            # follow-up): collectors_ext's router is included before the legacy router, so
-            # reusing the CSV route's exact path would have shadowed it for every collector.
+            # handle_collector_upload_url for a deployment tarball instead of a CSV. A
+            # distinct path from the legacy CSV route (confirmed live server-side):
+            # collectors_ext's router is included before the legacy router, so reusing the
+            # CSV route's exact path would have shadowed it for every collector.
             if len(parts) == 4 and parts[0] == "collectors" and parts[2] == "deployment" and parts[3] == "upload-url":
                 pid = parts[1]
                 payload = json.loads(self._body())
@@ -576,7 +568,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         parts = self.path.strip("/").split("/")
 
-        # PUT /uploads/{token} -- stands in for the presigned S3 PutObject itself (B7): no
+        # PUT /uploads/{token} -- stands in for the presigned S3 PutObject itself: no
         # Authorization header, matching `DeployClient.upload_package` sending none -- the
         # URL's own (fake) signature is the auth.
         if len(parts) == 2 and parts[0] == "uploads":
@@ -606,7 +598,7 @@ class Handler(BaseHTTPRequestHandler):
         parts = self.path.strip("/").split("/")
         try:
             # PATCH /collectors/{pid}/secrets -- the encrypt-on-write sibling this project
-            # models for a dlt pipeline's arbitrary secret names (R10 §3; see deploy.py's
+            # models for a dlt pipeline's arbitrary secret names (see deploy.py's
             # `DeployClient.submit_secrets` docstring for why this isn't the legacy
             # `_reclassify_secrets` route).
             if len(parts) == 3 and parts[0] == "collectors" and parts[2] == "secrets":

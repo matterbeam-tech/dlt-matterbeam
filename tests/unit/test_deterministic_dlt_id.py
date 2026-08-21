@@ -1,6 +1,5 @@
-"""Phase 1 assertion 2 (design §6): declaring `supported_merge_strategies` makes `_dlt_id`
-a deterministic hash of the primary key (A17 §3a) rather than random per extract -- verified
-here in the real package, not just a probe."""
+"""Declaring `supported_merge_strategies` makes `_dlt_id` a deterministic hash of the
+primary key rather than random per extract."""
 
 import json
 
@@ -43,10 +42,10 @@ def test_dlt_id_is_byte_identical_across_two_runs_of_the_same_data(pipeline_fact
 
 
 def test_dlt_id_is_stable_across_a_retry_of_the_same_job(pipeline_factory):
-    """A11: a retry re-reads the same physical file, so `_dlt_id` must be identical --
+    """A retry re-reads the same physical file, so `_dlt_id` must be identical --
     confirmed by running the same source through the same pipeline twice in one load-adjacent
-    sequence and checking the ids for an unchanged row match, matching what the design cites
-    as the retry-idempotency backstop (D10 layer 2)."""
+    sequence and checking the ids for an unchanged row match. This is what backs the
+    record-level dedup retry-idempotency backstop."""
     import dlt
 
     pipeline = pipeline_factory(dataset_name="ds")

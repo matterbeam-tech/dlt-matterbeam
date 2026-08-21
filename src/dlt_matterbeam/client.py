@@ -1,13 +1,10 @@
-"""MatterbeamJobClient: JobClientBase + WithStateSync (D2, D5).
+"""MatterbeamJobClient: JobClientBase + WithStateSync.
 
-`WithStateSync` is implemented for real in Phase 2, but only its cursor half:
-`get_stored_state` is backed by a real server call (the half that makes incremental
-extraction survive a fresh machine, D5) -- `get_stored_schema` / `get_stored_schema_by_hash`
-return `None`. That is a deliberate, narrower scope boundary than "implement
-`WithStateSync`" sounds like, not an oversight: schema storage needs its own write route
-this project did not build (see the Phase 2 report), and not implementing it degrades
-exactly like not implementing `WithStateSync` at all for that one half (A15) -- schema
-restore / `dlt pipeline sync`/`drop` don't work, extraction cursors do.
+Only the cursor half of `WithStateSync` is implemented: `get_stored_state` is backed by
+a real server call, so incremental extraction survives a fresh machine.
+`get_stored_schema` / `get_stored_schema_by_hash` return `None` -- there is no
+server-side schema storage, so schema restore / `dlt pipeline sync`/`drop` don't work,
+but extraction cursors do.
 """
 
 from __future__ import annotations
@@ -27,9 +24,9 @@ from dlt_matterbeam.configuration import MatterbeamClientConfiguration
 from dlt_matterbeam.load_job import MatterbeamLoadJob, MatterbeamStateJob
 from dlt_matterbeam.transport import MatterbeamTransport, resolve_transport
 
-# dlt's own bookkeeping tables never become facts in the log (H1). `_dlt_version` and
-# `_dlt_loads` carry write_disposition="skip" and never reach create_load_job at all (A14);
-# `_dlt_pipeline_state` does reach it, and is the one we intercept ourselves (D5).
+# dlt's own bookkeeping tables never become facts in the log. `_dlt_version` and
+# `_dlt_loads` carry write_disposition="skip" and never reach create_load_job at all;
+# `_dlt_pipeline_state` does reach it, and is the one we intercept ourselves.
 _DLT_STATE_TABLE = "_dlt_pipeline_state"
 
 
@@ -47,9 +44,9 @@ class MatterbeamJobClient(JobClientBase, WithStateSync):
         self._pid_resolved = False
 
     def __enter__(self) -> "MatterbeamJobClient":
-        # D6, corrected (§8.2): dlt never binds `pipeline_name` onto the destination
-        # config (only `dataset_name` is, `dlt/dataset/utils.py:30`) -- it is not
-        # available here. Registration is deferred to `_ensure_pid`, called from
+        # dlt never binds `pipeline_name` onto the destination config (only
+        # `dataset_name` is, `dlt/dataset/utils.py:30`) -- it is not available here.
+        # Registration is deferred to `_ensure_pid`, called from
         # `get_stored_state(pipeline_name)` on the common path (that call happens
         # immediately after `__enter__`, before any extraction, so registration still
         # happens at the start of a run -- just not inside this method), or from the
@@ -59,7 +56,7 @@ class MatterbeamJobClient(JobClientBase, WithStateSync):
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         pass
 
-    # ------------------------------------------------------------------- identity (D6)
+    # ------------------------------------------------------------------------- identity
 
     def _ensure_pid(self, pipeline_key: str) -> Optional[str]:
         if self._pid_resolved:
@@ -70,23 +67,21 @@ class MatterbeamJobClient(JobClientBase, WithStateSync):
 
     def _ensure_pid_fallback(self) -> Optional[str]:
         """Reached from a load job whenever *this* client instance was never the one
-        `get_stored_state` ran on -- which, per the design doc's own measurement, is most
-        load jobs: the loader opens and closes a client per job, so state-sync and each
-        table's load typically run on different instances even within one `run()` (§8.2).
+        `get_stored_state` ran on -- which is most load jobs: the loader opens and closes
+        a client per job, so state-sync and each table's load typically run on different
+        instances even within one `run()`.
 
-        A per-dataset-name key here is unsound, not just imprecise: it was tried and
-        empirically produces a *second, wrong* pid the moment a load-job instance resolves
-        before -- or independently of -- the state-sync instance, splitting one pipeline's
-        identity in exactly the way D6 exists to prevent. `Container()[PipelineContext]`
-        gives the same true `pipeline_name` `get_stored_state` would have used, so this
-        agrees with the primary path whenever a pipeline is actually running (always, for
-        every load job) -- it is not a parallel identity scheme, it is the same one read a
-        different way. It is used here, not in `__enter__`: that timing is what made the
-        spike's use of it a bug (§8.2) -- called too early, treated as the *only*
-        mechanism, and left to raise when no pipeline is active. Here it is a fallback of
-        a fallback: `get_stored_state` first, this second, and only when truly nothing is
-        running (a client built standalone, outside any `pipeline.run()`) does this drop to
-        a dataset/schema-name key that cannot claim to be more than a last resort.
+        A per-dataset-name key here is unsound, not just imprecise: it produces a
+        *second, wrong* pid the moment a load-job instance resolves before -- or
+        independently of -- the state-sync instance, splitting one pipeline's identity.
+        `Container()[PipelineContext]` gives the same true `pipeline_name`
+        `get_stored_state` would have used, so this agrees with the primary path whenever
+        a pipeline is actually running -- it is not a parallel identity scheme, it is the
+        same one read a different way. It is used here rather than in `__enter__` because
+        no pipeline is guaranteed active that early. This is a fallback of a fallback:
+        `get_stored_state` first, this second, and only when truly nothing is running (a
+        client built standalone, outside any `pipeline.run()`) does this drop to a
+        dataset/schema-name key that cannot claim to be more than a last resort.
         """
         if self._pid_resolved:
             return self.pid
@@ -141,11 +136,9 @@ class MatterbeamJobClient(JobClientBase, WithStateSync):
     # ------------------------------------------------------------- JobClientBase parts
 
     def initialize_storage(self, truncate_tables: Optional[Iterable[str]] = None) -> None:
-        # D3: dlt's only signal about `replace` -- which tables it means to truncate.
-        # There is no truncation marker in Matterbeam (B8), so `replace` degrades to
-        # `append` (envelope.check_disposition warns per-table at load time); nothing to
-        # do here yet. Recording `truncate_tables` is F2's (epoch marker) job, not this
-        # phase's.
+        # dlt's only signal about `replace` -- which tables it means to truncate. There
+        # is no truncation marker in Matterbeam, so `replace` degrades to `append`
+        # (envelope.check_disposition warns per-table at load time); nothing to do here.
         pass
 
     def is_storage_initialized(self) -> bool:
@@ -160,9 +153,9 @@ class MatterbeamJobClient(JobClientBase, WithStateSync):
         expected_update: Optional[TSchemaTables] = None,
         force: bool = False,
     ) -> Optional[TSchemaTables]:
-        # No server-side schema storage in this phase (see module docstring) -- nothing
-        # to push. Still call super() so dlt's own bookkeeping about what's "applied"
-        # stays correct.
+        # No server-side schema storage (see module docstring) -- nothing to push.
+        # Still call super() so dlt's own bookkeeping about what's "applied" stays
+        # correct.
         return super().update_stored_schema(only_tables, expected_update, force)
 
     def create_load_job(
@@ -186,7 +179,7 @@ class MatterbeamJobClient(JobClientBase, WithStateSync):
         self._ensure_pid_fallback()
         self.transport.complete_load(load_id, self.pid)
 
-    # ---------------------------------------------------------------- WithStateSync (D5)
+    # -------------------------------------------------------------------- WithStateSync
 
     def get_stored_state(self, pipeline_name: str) -> Optional[StateInfo]:
         self._ensure_pid(pipeline_name)

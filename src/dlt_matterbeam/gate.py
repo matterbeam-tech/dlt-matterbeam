@@ -1,16 +1,14 @@
-"""The upload gate (BRIEF §1 step 2; findings-dlt-deployment.md A11; cli-and-upload-
-options.md §3): decide whether a pipeline script's destination is `matterbeam` without
-ever contacting a real destination.
+"""The upload gate: decide whether a pipeline script's destination is `matterbeam`
+without ever contacting a real destination.
 
-This is pass 1 only -- the local, pre-upload check that runs inside `dlt matterbeam
-deploy` itself, in the same environment the customer used for their pipeline's local
-run (so the dependency is already importable, per A11). Pass 2 (the authoritative,
-server-side re-check inside the build step) does not exist yet -- there is no build
-step yet (BRIEF §1 steps 5-6 are later tasks).
+This is the local, pre-upload check that runs inside `dlt matterbeam deploy` itself,
+in the same environment the customer used for their pipeline's local run (so the
+dependency is already importable). An authoritative, server-side re-check inside the
+build step does not exist yet.
 
-Source-side detection (BRIEF §3: "source is deferred to a later project") is not
-implemented here. A pipeline whose destination isn't matterbeam is rejected outright,
-even if it might one day resolve as an emitter (`source=matterbeam`).
+Source-side detection is not implemented here. A pipeline whose destination isn't
+matterbeam is rejected outright, even if it might one day resolve as an emitter
+(`source=matterbeam`).
 """
 
 import os
@@ -176,11 +174,11 @@ def open_collector_pipeline(pipeline_script_path: str) -> Iterator["Pipeline"]: 
     classification and deploy-info extraction as two separately testable concerns instead of
     threading a live object out of `run_gate`'s own return contract.
 
-    A fresh local run's *trace* (needed for secret-name recovery, R10) is deliberately NOT
+    A fresh local run's *trace* (needed for secret-name recovery) is deliberately NOT
     available from this pipeline object -- the ephemeral `DLT_DATA_DIR` here means `.run()`
-    never actually executes, so `last_trace` is `None`. Secret recovery instead attaches to the
-    customer's real, previously-run pipeline state (`deploy.py`'s `recover_secrets`), mirroring
-    `dlt deploy`'s own `dlt.attach` + `get_state_and_trace` (R08 §2).
+    never actually executes, so `last_trace` is `None`. Secret recovery instead attaches to
+    the customer's real, previously-run pipeline state (`deploy.py`'s `recover_secrets`),
+    mirroring `dlt deploy`'s own `dlt.attach` + `get_state_and_trace`.
     """
     run_gate(pipeline_script_path)  # raises MatterbeamGateError for anything but a collector
 

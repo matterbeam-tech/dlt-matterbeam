@@ -89,11 +89,10 @@ directory, or export DESTINATION__MATTERBEAM__MATTERBEAM_URL (and _API_TOKEN) fi
             raise MatterbeamGateError(f"dlt matterbeam deploy: {ex}") from ex
         print(f"{args.pipeline_script_path!r} recognized as a collector (destination=matterbeam).")
 
-        # cli-and-upload-options.md §5's polled-UX shape: "uploading... done, validating...
-        # done, building... done" -- the pid/secrets/package steps (BRIEF §1 steps 3-5) are
-        # synchronous from the CLI's point of view; `deploy()` itself only triggers the build
-        # (step 6, async, server-side), so the polling below (Task 4 item 1) is what actually
-        # closes the loop on "done."
+        # The pid/secrets/package steps are synchronous from the CLI's point of view;
+        # `deploy()` itself only triggers the build (async, server-side), so the polling
+        # below is what actually closes the loop on "uploading... done, validating...
+        # done, building... done."
         try:
             result = deploy(
                 args.pipeline_script_path,

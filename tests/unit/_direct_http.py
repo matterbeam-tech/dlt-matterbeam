@@ -1,8 +1,8 @@
 """Small helpers for talking to `fake_matterbeam.server` directly over HTTP, bypassing a
-real dlt pipeline. Phase 3's idempotency/ordering mechanics (C3/C4) are server-internal --
-exercising them precisely (a specific `_dlt_id`, a specific job_id/seq, a specific chaos
-crash point) is far more direct this way than driving a whole pipeline run and hoping dlt's
-own retry timing lines up.
+real dlt pipeline. The idempotency/ordering mechanics are server-internal -- exercising
+them precisely (a specific `_dlt_id`, a specific job_id/seq, a specific chaos crash point)
+is far more direct this way than driving a whole pipeline run and hoping dlt's own retry
+timing lines up.
 
 Not a test file itself (no `test_` functions) -- imported by ones that need it.
 """

@@ -1,11 +1,10 @@
-"""Phase 1 assertion 1 (design §6): the declared `sequential` parallelism strategy is
-honoured at *runtime*, not just round-tripped through `capabilities()` (open question #2,
-D2/D4's shared falsifier). Instruments job start/stop by wrapping `MatterbeamLoadJob.run` --
-a test-only wrapper, not production tracing code -- and asserts no two job spans overlap.
+"""The declared `sequential` parallelism strategy is honoured at *runtime*, not just
+round-tripped through `capabilities()`. Instruments job start/stop by wrapping
+`MatterbeamLoadJob.run` -- a test-only wrapper, not production tracing code -- and
+asserts no two job spans overlap.
 
 Also confirms the negative: dlt's default parallelism DOES overlap jobs on the same
-workload, so `sequential` is load-bearing rather than decorative (matching the spike's
-finding in the design doc's §8.1 ordering row).
+workload, so `sequential` is load-bearing rather than decorative.
 """
 
 import threading

@@ -1,4 +1,4 @@
-"""Phase 2 integration tier: a real dlt pipeline against a real Matterbeam dev account.
+"""Integration tier: a real dlt pipeline against a real Matterbeam dev account.
 
 Only collected when `MATTERBEAM_API_TOKEN` and `MATTERBEAM_BASE_URL` are both set (see
 `conftest.py` in this directory) -- CI never needs these secrets, and `pytest` (which
@@ -24,11 +24,11 @@ def _destination():
     # config providers, which have no mapping from this test's MATTERBEAM_API_TOKEN /
     # MATTERBEAM_BASE_URL env vars to MatterbeamClientConfiguration's fields -- it would
     # default to transport="http" with no matterbeam_url configured and fail fast rather
-    # than ever touch the network, which is exactly what this file did until building
-    # Phase 2 surfaced it (both tests "passed" against a local file transport, never
-    # against a real backend, back when the default silently fell back to "file"
-    # transport). Construct the destination explicitly instead, exactly like
-    # tests/unit/conftest.py's http_pipeline_factory does against the fake server.
+    # than ever touch the network, which is exactly what this file did before this bug
+    # surfaced (both tests "passed" against a local file transport, never against a real
+    # backend, back when the default silently fell back to "file" transport). Construct
+    # the destination explicitly instead, exactly like tests/unit/conftest.py's
+    # http_pipeline_factory does against the fake server.
     return matterbeam(
         transport="http",
         matterbeam_url=os.environ["MATTERBEAM_BASE_URL"],
@@ -58,18 +58,18 @@ def test_append_lands_and_registers_a_real_pid():
     assert not info.has_failed_jobs
 
     # `pipeline.destination_client()` builds a *fresh* client instance that was never
-    # used in the run (the loader opens and closes one client per job, per the design
-    # doc's §8.2 finding) -- its own .pid is legitimately None. Registration is
-    # idempotent (D6), so calling it again is the correct way to confirm a real pid
-    # exists for this run rather than asserting on an instance that never registered.
+    # used in the run (the loader opens and closes one client per job) -- its own .pid is
+    # legitimately None. Registration is idempotent, so calling it again is the correct
+    # way to confirm a real pid exists for this run rather than asserting on an instance
+    # that never registered.
     client = pipeline.destination_client()
     pid = client.transport.register(pipeline.pipeline_name, pipeline.dataset_name)
     assert pid is not None
 
 
 def test_incremental_state_survives_a_fresh_machine():
-    """The half of D5 that matters most: a second `pipelines_dir` with no local state at
-    all reads the cursor back over HTTP before extracting, and fetches only new rows."""
+    """A second `pipelines_dir` with no local state at all reads the cursor back over
+    HTTP before extracting, and fetches only new rows."""
     run_id = uuid.uuid4().hex[:8]
     dataset_name = f"dlt_matterbeam_it_{run_id}"
     pipeline_name = f"dlt_matterbeam_it_{run_id}"

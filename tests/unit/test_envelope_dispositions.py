@@ -1,4 +1,4 @@
-"""D3/D9: disposition translation as pure functions, no dlt pipeline required."""
+"""Disposition translation as pure functions, no dlt pipeline required."""
 
 import pytest
 from dlt_matterbeam import envelope
@@ -101,8 +101,8 @@ def test_build_record_tombstone_strips_body_to_key_fields():
 
 
 def test_build_record_keyless_tombstone_keeps_full_body():
-    # no key fields declared -- nothing to strip to, so the row survives whole (D3 is
-    # explicit that unkeyed hard_delete is not the modeled case)
+    # no key fields declared -- nothing to strip to, so the row survives whole
+    # (unkeyed hard_delete is not the modeled case)
     row = {"a": 1, "deleted": True, "_dlt_id": "x", "_dlt_load_id": "1"}
     rec = envelope.build_record(row, record_type_id="ds.t", keys=[], hard_delete=["deleted"], load_id="1")
     assert rec["a"] == 1

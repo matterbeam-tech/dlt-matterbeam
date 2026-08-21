@@ -1,4 +1,4 @@
-"""A stock dlt merge resource, through the real destination, folded back from disk (D3/D5/H1)."""
+"""A stock dlt merge resource, through the real destination, folded back from disk."""
 
 import json
 
@@ -68,11 +68,11 @@ def test_merge_with_hard_delete_folds_correctly(pipeline_factory):
 
     tombstones = [r for r in records if r["mb.metadata"].get("is_tombstone")]
     assert len(tombstones) == 1
-    assert set(tombstones[0]) == {"id", "mb.metadata"}  # stripped to key fields (D3)
+    assert set(tombstones[0]) == {"id", "mb.metadata"}  # stripped to key fields
 
     for r in records:
-        assert not any(k.startswith("_dlt_") for k in r)  # D9: promoted to metadata, not body
-        assert r["mb.metadata"].get("source_record_id")  # A17 §3a
+        assert not any(k.startswith("_dlt_") for k in r)  # promoted to metadata, not body
+        assert r["mb.metadata"].get("source_record_id")
 
 
 def test_scd2_is_refused_end_to_end(pipeline_factory):
@@ -106,4 +106,4 @@ def test_replace_degrades_to_append_across_two_runs(pipeline_factory, caplog):
 
     output_dir = pipeline.destination.config_params.get("output_dir")
     records = _all_records(output_dir, "shop.dims")
-    assert len(records) == 4  # both runs' rows remain -- no truncation marker exists (B8)
+    assert len(records) == 4  # both runs' rows remain -- no truncation marker exists

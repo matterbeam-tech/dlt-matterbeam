@@ -1,4 +1,4 @@
-"""D11: typed-jsonl embeds PUA type markers for decimal/datetime/etc (A13) -- these must be
+"""typed-jsonl embeds PUA type markers for decimal/datetime/etc -- these must be
 stripped at the string level before a record ships, or the marker characters land in the
 log as literal, uninferrable bytes. None of the other end-to-end tests exercise a typed
 value, so this is the one place that path is actually proven."""

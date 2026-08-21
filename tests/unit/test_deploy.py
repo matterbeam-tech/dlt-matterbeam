@@ -1,5 +1,5 @@
-"""Task 2 (BRIEF §1 steps 3-5): pid handoff, secret submission, package upload via presigned
-S3. `DeployClient`/`build_package` are tested directly against the fake server; the full
+"""Pid handoff, secret submission, package upload via presigned S3.
+`DeployClient`/`build_package` are tested directly against the fake server; the full
 `deploy()` orchestration is tested against a pipeline script that really ran once locally
 (mirroring how a customer would invoke `dlt matterbeam deploy` after developing their
 pipeline)."""
@@ -50,7 +50,7 @@ if __name__ == "__main__":
 
 def _write_and_run_once(tmp_path, base_url: str, monkeypatch) -> tuple[str, str]:
     """Writes a matterbeam-collector script whose `api_token` is left to config injection
-    (never passed in code, per R10's own "we could not read secrets passed in code" caveat)
+    (never passed in code -- secrets passed in code can't be read back for redeployment)
     and actually executes it once, for real -- exactly the "pipeline already ran successfully
     locally" precondition `dlt matterbeam deploy` (and `dlt deploy`) require. Also carries a
     *source*-level secret (`my_source`'s `api_key`) so tests can assert the thing the
@@ -72,7 +72,7 @@ def _write_and_run_once(tmp_path, base_url: str, monkeypatch) -> tuple[str, str]
 
 @pytest.fixture(autouse=True)
 def _api_token_env(monkeypatch):
-    # R10 §1: the destination's own secret field, resolved from the environment (never passed
+    # The destination's own secret field, resolved from the environment (never passed
     # in code) -- so both the real local run and `recover_secrets`'s later re-attach resolve
     # the same value the same way. Its exclusion from what gets submitted is exactly what
     # test_recover_secrets_excludes_the_matterbeam_destinations_own_token asserts.
@@ -109,7 +109,7 @@ def test_build_package_excludes_secrets_and_matches_manifest(tmp_path):
 
     manifest_paths = {f["relative_path"] for f in manifest["files"]}
     assert manifest_paths == {"pipeline.py", "requirements.txt", ".dlt/config.toml"}
-    assert manifest["entry_script"] == "pipeline.py"  # Task 4: which file the runtime task runs
+    assert manifest["entry_script"] == "pipeline.py"  # which file the runtime task runs
 
     # deterministic: building twice from the same inputs produces the same content hash
     built_again = build_package(str(project / "pipeline.py"), str(tmp_path / "out2.tar.gz"))
@@ -133,7 +133,7 @@ def test_register_hosted_pid_is_idempotent(fake_server):
 
 
 def test_register_hosted_pid_adopts_an_existing_external_claim_in_place(fake_server):
-    """R09 §1.3: a claim already resolved to an external_dlt collector is transitioned, not
+    """A claim already resolved to an external_dlt collector is transitioned, not
     duplicated -- the handoff falls out of one pid, one process_state."""
     base_url, state = fake_server
     external_pid, created = state.register("pipeline_b", "ds2", "external_dlt")
@@ -158,7 +158,7 @@ def test_submit_secrets_lands_encrypted_not_verbatim(fake_server):
     client.submit_secrets(pid, {"SOURCES__MY_SOURCE__API_KEY": "s3cr3t"})
 
     stored = state.pids[pid]["secret"]["SOURCES__MY_SOURCE__API_KEY"]
-    assert stored != "s3cr3t"  # never verbatim (R10 §3 / B4)
+    assert stored != "s3cr3t"  # never verbatim
     assert state.decrypt_secret(pid, "SOURCES__MY_SOURCE__API_KEY") == "s3cr3t"
 
 
@@ -206,7 +206,7 @@ def test_trigger_build_and_get_build_status_round_trip(fake_server):
 
 
 def test_poll_build_status_stops_early_on_a_terminal_status(fake_server):
-    """Task 4 item 1: a build that's already `ready` (or `failed`) by the first check must not
+    """A build that's already `ready` (or `failed`) by the first check must not
     burn through the remaining attempts/sleeps."""
     base_url, state = fake_server
     client = DeployClient(base_url, "fake-token")
@@ -275,8 +275,8 @@ def test_recover_secrets_reads_real_values_after_a_prior_local_run(fake_server, 
 def test_recover_secrets_excludes_the_matterbeam_destinations_own_token(fake_server, tmp_path, monkeypatch):
     """Once uploaded, a hosted pipeline is already authenticated with Matterbeam for its own
     internal calls (BEAMIX_PID identity, and the in-runtime `[internal-log]` transport makes
-    no HTTP call at all) -- it never needs its own `api_token` back as a "secret." R10 scopes
-    this mechanism to *source* credentials, not the destination's own auth."""
+    no HTTP call at all) -- it never needs its own `api_token` back as a "secret." Secret
+    recovery is scoped to *source* credentials, not the destination's own auth."""
     base_url, _state = fake_server
     script_path, _source_secret_env_key = _write_and_run_once(tmp_path, base_url, monkeypatch)
 

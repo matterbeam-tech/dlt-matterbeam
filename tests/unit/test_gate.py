@@ -1,4 +1,4 @@
-"""The upload gate (A11, cli-and-upload-options.md §3): pass-1 destination detection."""
+"""The upload gate: pass-1 destination detection."""
 
 import pytest
 from dlt_matterbeam.gate import GateResult, MatterbeamGateError, inspect_destination, run_gate
@@ -76,7 +76,7 @@ def test_no_destination_rejected(tmp_path):
 
 
 def test_unresolved_destination_is_a_distinct_outcome(tmp_path):
-    """A11: "failed to resolve" must not be folded into "not matterbeam"."""
+    """ "failed to resolve" must not be folded into "not matterbeam"."""
     script = _write(tmp_path, "unresolved_case", UNRESOLVED_SCRIPT)
     result = inspect_destination(script)
     assert result.outcome == "unresolved"
@@ -104,7 +104,7 @@ def test_missing_file_rejected(tmp_path):
 
 
 def test_stale_local_state_does_not_leak_across_checks(tmp_path):
-    """A11: local working-directory state leaking a destination into an unrelated later
+    """Local working-directory state leaking a destination into an unrelated later
     check is a real, demonstrated failure mode -- the ephemeral DLT_DATA_DIR per
     invocation is what prevents it. Run the same pipeline_name once with matterbeam and
     once with duckdb; the second check must not see the first run's destination."""
