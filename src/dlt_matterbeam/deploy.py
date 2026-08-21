@@ -117,7 +117,7 @@ class DeployResult:
     package_content_hash: str
     secret_count: int
     build_triggered: bool = False
-    """False whenever `trigger_build` itself raised (e.g. `501` -- the package_builder
+    """False whenever `trigger_build` itself raised (e.g. `501` -- the dlt-package-builder
     component isn't deployed/published to this customer account yet, `domains/deploy/
     repository.py`'s `_package_builder_lambda_arn`) -- deploy() swallows that one specific
     failure rather than failing the whole command, since upload having already succeeded
@@ -267,7 +267,7 @@ def _iter_package_files(root: Path):
 
 
 class _HashingReader:
-    """Mirrors dlt's own `PackageBuilder._HashingReader` (`package_builder.py`) -- same
+    """Mirrors dlt's own `PackageBuilder._HashingReader` (`dlt_package_builder.py`) -- same
     sha3_256-while-streaming shape, reimplemented locally rather than imported since that class
     is a private (`_`-prefixed) implementation detail of a builder tied to `WorkspaceRunContext`
     (see module docstring)."""
@@ -335,7 +335,7 @@ def build_package(pipeline_script_path: str, output_path: str) -> BuiltPackage:
 
     If the walked directory ships neither `requirements.txt` nor `pyproject.toml`, one is
     synthesized (`_frozen_requirements_bytes`) and added to the tar/manifest under
-    `files/requirements.txt` -- the server-side build-runner (`package_builder`) needs *some*
+    `files/requirements.txt` -- the server-side build-runner (`dlt-package-builder`) needs *some*
     dependency spec to install against, and a bare single-script customer pipeline (the common
     case this design targets, per BRIEF §4.1) usually has none of its own.
 
@@ -343,7 +343,7 @@ def build_package(pipeline_script_path: str, output_path: str) -> BuiltPackage:
     `root` (almost always just its basename, since `root` is its immediate parent directory).
     Task 4's runtime task needs this -- the uploaded tarball's `files/` directory is the
     customer's whole pipeline directory, and nothing else records which file inside it is the
-    one to actually execute. `package_builder` (Task 3) carries this field through onto the
+    one to actually execute. `dlt-package-builder` (Task 3) carries this field through onto the
     collector record's own build metadata (`entry_script`, alongside `current_package_hash`)
     so the runtime task can read it without re-deriving it.
     """
@@ -519,10 +519,10 @@ class DeployClient:
         build-runner right after `upload_package`'s `PutObject` completes --
         `POST /collectors/{pid}/deployment/build` (`routers/collectors_ext/router.py`'s
         `trigger_deployment_build`). Server-side this dispatches through the ordinary
-        pid_fsm RUN path (a singleton package-builder pid), not a direct Lambda invoke --
+        pid_fsm RUN path (a singleton dlt-package-builder pid), not a direct Lambda invoke --
         this client has no opinion on that, it just posts and returns quickly regardless
         of how long the actual build takes. Returns `False`, not an exception, for a 501
-        specifically -- the package_builder component not yet deployed/published to this
+        specifically -- the dlt-package-builder component not yet deployed/published to this
         customer account (`domains/deploy/repository.py`'s `_package_builder_lambda_arn`)
         -- so `deploy()` can still report a successful upload rather than failing the
         whole command over infrastructure that hasn't caught up yet."""

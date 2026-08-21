@@ -108,7 +108,7 @@ directory, or export DESTINATION__MATTERBEAM__MATTERBEAM_URL (and _API_TOKEN) fi
         print(f"uploaded package (content hash {result.package_content_hash}).")
         if not result.build_triggered:
             print(
-                "build NOT triggered -- the package_builder component isn't deployed to this "
+                "build NOT triggered -- the dlt-package-builder component isn't deployed to this "
                 "customer account yet. The upload above still succeeded; re-run `dlt matterbeam "
                 f"deploy` for pid {result.pid!r} once it is."
             )

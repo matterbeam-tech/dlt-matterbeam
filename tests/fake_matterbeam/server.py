@@ -533,7 +533,7 @@ class Handler(BaseHTTPRequestHandler):
 
             # POST /collectors/{pid}/deployment/build -- fires the (fake) async build --
             # real server-side this dispatches through the pid_fsm RUN path (a singleton
-            # package-builder pid), never a direct Lambda invoke.
+            # dlt-package-builder pid), never a direct Lambda invoke.
             if len(parts) == 4 and parts[0] == "collectors" and parts[2] == "deployment" and parts[3] == "build":
                 pid = parts[1]
                 self.state.trigger_build(pid)
