@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 from dlt.common.destination.client import PreparedTableSchema, RunnableLoadJob
 from dlt.common.storages import FileStorage
@@ -40,52 +40,49 @@ class MatterbeamLoadJob(RunnableLoadJob):
         sort = envelope.dedup_sort(table)
 
         columns = set(table["columns"].keys()) | {"_dlt_id", "_dlt_load_id"}
-        with FileStorage.open_zipsafe_ro(self._file_path, "rb") as f:
-            rows = list(envelope.iter_stripped_rows(f, columns))
-        rows = envelope.sort_rows(rows, sort)
-
         recordtype_id = f"{client.config.dataset_name}.{table_name}"
         chunk_records = client.config.chunk_records
         chunk_bytes = client.config.chunk_bytes
 
-        pending: list[dict] = []
-        pending_bytes = 0
-        seq = 0
-        for row in rows:
-            pending.append(row)
-            # An estimate of the raw row's own size, not the final wire/segment size --
-            # cheap, and close enough for a soft chunking target. Precise byte-size
-            # chunking against the real 4 MB/6 MB limits is unmeasured and left for
-            # when a real payload shape is measured.
-            pending_bytes += len(json.dumps(row))
-            if len(pending) >= chunk_records or pending_bytes >= chunk_bytes:
-                client.send_chunk(
-                    recordtype_id=recordtype_id,
-                    dataset_name=client.config.dataset_name,
-                    table_name=table_name,
-                    rows=pending,
-                    keys=keys,
-                    hard_delete=hard_delete,
-                    load_id=self._load_id,
-                    job_id=self.job_id(),
-                    seq=seq,
-                )
-                seq += 1
-                pending, pending_bytes = [], 0
-        if pending or not rows:
-            # send a (possibly empty) chunk even for a zero-row job, so a table that only
-            # ever sees deletes/no-ops still has a real recordtype on disk
+        def send(rows: list[dict], seq: int) -> None:
             client.send_chunk(
                 recordtype_id=recordtype_id,
                 dataset_name=client.config.dataset_name,
                 table_name=table_name,
-                rows=pending,
+                rows=rows,
                 keys=keys,
                 hard_delete=hard_delete,
                 load_id=self._load_id,
                 job_id=self.job_id(),
                 seq=seq,
             )
+
+        with FileStorage.open_zipsafe_ro(self._file_path, "rb") as f:
+            # Rows stream from the file straight into chunks, so memory stays at about one
+            # chunk however big the load file is. Only a `dedup_sort` table has to hold the
+            # whole file: same-key ordering is a sort across every row in it.
+            rows: Iterable[dict] = envelope.iter_stripped_rows(f, columns)
+            if sort:
+                rows = envelope.sort_rows(list(rows), sort)
+
+            pending: list[dict] = []
+            pending_bytes = 0
+            seq = 0
+            for row in rows:
+                pending.append(row)
+                # An estimate of the raw row's own size, not the final wire/segment size --
+                # cheap, and close enough for a soft chunking target. Precise byte-size
+                # chunking against the real 4 MB/6 MB limits is unmeasured and left for
+                # when a real payload shape is measured.
+                pending_bytes += len(json.dumps(row))
+                if len(pending) >= chunk_records or pending_bytes >= chunk_bytes:
+                    send(pending, seq)
+                    seq += 1
+                    pending, pending_bytes = [], 0
+            if pending or seq == 0:
+                # send a (possibly empty) chunk even for a zero-row job, so a table that only
+                # ever sees deletes/no-ops still has a real recordtype on disk
+                send(pending, seq)
 
 
 class MatterbeamStateJob(RunnableLoadJob):
